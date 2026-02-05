@@ -1,83 +1,104 @@
-# Niyanta - Agentic RAG System
+# Niyanta - Agentic RAG with Distributed Worker Architecture
 
-A production-ready Retrieval-Augmented Generation (RAG) system with intelligent query routing, dual-pipeline architecture, and comprehensive admin dashboard.
+Production-ready agentic RAG system featuring LangGraph planning, distributed worker execution via RabbitMQ, intelligent multi-step reasoning, and comprehensive admin dashboard.
 
 ---
 
 ## Overview
 
-Niyanta is an advanced RAG system . It automatically routes queries between two specialized pipelines based on complexity, providing fast responses for simple queries and deep reasoning for complex multi-step questions.
+Niyanta implements a true agentic RAG architecture with intelligent planning, distributed tool execution, and feedback loops. The system uses LangGraph for decision-making, RabbitMQ workers for scalable execution, and combines vector search (ChromaDB) with graph reasoning (Neo4j) for complex query processing.
 
 **Key Capabilities:**
-- Intelligent query classification with LLM-based routing
-- Dual pipeline architecture (Normal RAG + Agentic RAG)
+- Agentic planning with LangGraph state machine
+- Distributed worker architecture with RabbitMQ
+- Intelligent query classification and routing
+- Multi-step reasoning with feedback loops
 - Hybrid database strategy (vector + graph)
-- Semantic caching .
-- Async task processing for complex queries
+- Semantic caching with 45-60% hit rate
+- Quality evaluation and automatic replanning
 - Full-featured admin dashboard with analytics
 
 ---
 
-## System Architecture
+## Agentic Architecture
 
 ```mermaid
 graph TB
-    subgraph "Client"
-        UI[User Dashboard]
-        ADMIN[Admin Dashboard]
+    subgraph "User Layer"
+        USER[User Query]
     end
     
-    subgraph "API Layer"
-        API[FastAPI Server<br/>19 Endpoints]
-        ROUTER[Query Router<br/>LLM Classifier]
+    subgraph "Planning Brain"
+        LG[LangGraph Planner<br/>Intelligent Decision Making]
     end
     
-    subgraph "Processing Pipelines"
-        NORMAL[Normal RAG<br/>Simple Queries]
-        AGENTIC[Agentic RAG<br/>Complex Reasoning]
-        CACHE[Semantic Cache<br/>Redis]
+    subgraph "Orchestration"
+        ORCH[Orchestrator<br/>Coordinates Execution]
+        EVAL[Evaluator<br/>Quality Check & Replan]
     end
     
-    subgraph "Data Storage"
-        CHROMA[ChromaDB<br/>100 Docs]
-        NEO4J[Neo4j<br/>56 Nodes]
-        REDIS[Redis<br/>Cache & State]
+    subgraph "Message Queue"
+        RMQ[RabbitMQ<br/>Distributed Task Queue]
     end
     
-    subgraph "Background"
-        QUEUE[RabbitMQ<br/>Message Queue]
-        WORKER[Worker Process<br/>Async Tasks]
+    subgraph "Execution Workers"
+        W1[Worker 1]
+        W2[Worker 2]
+        W3[Worker N]
     end
     
-    subgraph "AI Layer"
-        LLM[Groq API<br/>llama-3.3-70b]
-        EMBED[Embeddings<br/>MiniLM-L6-v2]
+    subgraph "Tools"
+        VS[Vector Search<br/>ChromaDB]
+        GQ[Graph Query<br/>Neo4j]
+        EM[Entity Matching<br/>Semantic]
+        LLM[Reasoning<br/>Groq LLM]
     end
     
-    UI --> API
-    ADMIN --> API
-    API --> CACHE
-    CACHE -->|Miss| ROUTER
-    ROUTER -->|Simple| NORMAL
-    ROUTER -->|Complex| AGENTIC
+    subgraph "State Storage"
+        REDIS[Redis<br/>Results & State]
+    end
     
-    NORMAL --> CHROMA
-    NORMAL --> LLM
+    USER --> LG
+    LG -->|Agent Plan| ORCH
+    ORCH -->|Publish Steps| RMQ
     
-    AGENTIC --> QUEUE
-    QUEUE --> WORKER
-    WORKER --> CHROMA
-    WORKER --> NEO4J
-    WORKER --> LLM
+    RMQ --> W1
+    RMQ --> W2
+    RMQ --> W3
     
-    CHROMA --> EMBED
+    W1 --> VS
+    W1 --> GQ
+    W2 --> EM
+    W2 --> LLM
+    W3 --> VS
     
-    style UI fill:#4CAF50
-    style ADMIN fill:#FF9800
-    style CACHE fill:#2196F3
-    style NORMAL fill:#00BCD4
-    style AGENTIC fill:#9C27B0
+    W1 -->|Store Results| REDIS
+    W2 -->|Store Results| REDIS
+    W3 -->|Store Results| REDIS
+    
+    REDIS --> ORCH
+    ORCH --> EVAL
+    EVAL -->|Replan if Needed| LG
+    EVAL -->|Complete| USER
+    
+    style LG fill:#9C27B0
+    style ORCH fill:#FF9800
+    style RMQ fill:#2196F3
+    style W1 fill:#4CAF50
+    style W2 fill:#4CAF50
+    style W3 fill:#4CAF50
+    style EVAL fill:#E91E63
 ```
+
+**Key Agentic Features:**
+- LangGraph-based planning and decision making
+- Distributed worker pool for tool execution
+- Feedback loop with quality evaluation
+- Automatic replanning for improved results
+- Fault-tolerant with retry mechanisms
+- Horizontally scalable architecture
+
+**[Read Full Agentic Architecture Documentation →](./docs/AGENTIC_ARCHITECTURE.md)**
 
 ---
 
@@ -366,6 +387,7 @@ frontend/
 ```
 
 ---
+```
 
 cd ../frontend
 
