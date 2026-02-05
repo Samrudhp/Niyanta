@@ -1,23 +1,108 @@
-# Niyanta - Agentic RAG System
+# Niyanta - Agentic RAG with Distributed Worker Architecture
 
-> **Production-ready Retrieval-Augmented Generation (RAG) system with dual-pipeline architecture for intelligent query processing.**
+Production-ready agentic RAG system featuring LangGraph planning, distributed worker execution via RabbitMQ, intelligent multi-step reasoning, and comprehensive admin dashboard.
 
-## 📋 Overview
+## Overview
 
-Niyanta is a comprehensive RAG system that intelligently routes queries between **Normal RAG** and **Agentic RAG** pipelines based on query complexity. The system combines vector databases, graph databases, and LLM reasoning to provide accurate, context-aware answers for financial services domain.
+Niyanta implements a true agentic RAG architecture with intelligent planning, distributed tool execution, and feedback loops. The system uses LangGraph for decision-making, RabbitMQ workers for scalable execution, and combines vector search (ChromaDB) with graph reasoning (Neo4j) for complex query processing.
 
 ### Key Features
 
-- **Dual Pipeline Architecture**: Automatic routing between Normal RAG (fast, simple queries) and Agentic RAG (complex, multi-hop reasoning)
+- **Agentic Planning**: LangGraph-based intelligent decision making and dynamic tool selection
+- **Distributed Execution**: RabbitMQ worker pool for scalable, fault-tolerant processing
+- **Multi-Step Reasoning**: Complex queries decomposed into coordinated steps with feedback loops
+- **Dual Pipeline Architecture**: Fast path (Normal RAG) and intelligent path (Agentic RAG)
 - **Hybrid Database Strategy**: ChromaDB (vector search) + Neo4j (graph reasoning)
 - **Semantic Caching**: 25-60x speedup with embedding-based similarity matching
-- **Async Task Processing**: RabbitMQ-based worker system for complex queries
-- **Admin Dashboard**: Full system monitoring, analytics, and management
-- **Production Ready**: 80% robustness, comprehensive error handling
+- **Quality Evaluation**: Automatic result validation with replanning capability
+- **Admin Dashboard**: Real-time system monitoring, analytics, and management
+- **Production Ready**: Fault-tolerant, horizontally scalable, comprehensive error handling
 
 ---
 
-## 🏗️ High-Level Architecture
+## Agentic Architecture
+
+```mermaid
+graph TB
+    subgraph "User Layer"
+        USER[User Query]
+    end
+    
+    subgraph "Planning Brain"
+        LG[LangGraph Planner<br/>Intelligent Decision Making]
+    end
+    
+    subgraph "Orchestration"
+        ORCH[Orchestrator<br/>Coordinates Execution]
+        EVAL[Evaluator<br/>Quality Check & Replan]
+    end
+    
+    subgraph "Message Queue"
+        RMQ[RabbitMQ<br/>Distributed Task Queue]
+    end
+    
+    subgraph "Execution Workers"
+        W1[Worker 1]
+        W2[Worker 2]
+        W3[Worker N]
+    end
+    
+    subgraph "Tools"
+        VS[Vector Search<br/>ChromaDB]
+        GQ[Graph Query<br/>Neo4j]
+        EM[Entity Matching<br/>Semantic]
+        LLM[Reasoning<br/>Groq LLM]
+    end
+    
+    subgraph "State Storage"
+        REDIS[Redis<br/>Results & State]
+    end
+    
+    USER --> LG
+    LG -->|Agent Plan| ORCH
+    ORCH -->|Publish Steps| RMQ
+    
+    RMQ --> W1
+    RMQ --> W2
+    RMQ --> W3
+    
+    W1 --> VS
+    W1 --> GQ
+    W2 --> EM
+    W2 --> LLM
+    W3 --> VS
+    
+    W1 -->|Store Results| REDIS
+    W2 -->|Store Results| REDIS
+    W3 -->|Store Results| REDIS
+    
+    REDIS --> ORCH
+    ORCH --> EVAL
+    EVAL -->|Replan if Needed| LG
+    EVAL -->|Complete| USER
+    
+    style LG fill:#9C27B0
+    style ORCH fill:#FF9800
+    style RMQ fill:#2196F3
+    style W1 fill:#4CAF50
+    style W2 fill:#4CAF50
+    style W3 fill:#4CAF50
+    style EVAL fill:#E91E63
+```
+
+**Key Agentic Features:**
+- LangGraph-based planning and decision making
+- Distributed worker pool for tool execution
+- Feedback loop with quality evaluation
+- Automatic replanning for improved results
+- Fault-tolerant with retry mechanisms
+- Horizontally scalable architecture
+
+**[Read Full Agentic Architecture Documentation →](./AGENTIC_ARCHITECTURE.md)**
+
+---
+
+## System Architecture
 
 ```mermaid
 graph TB
