@@ -111,39 +111,79 @@ sequenceDiagram
     participant Cache
     participant Router
     participant Normal
-    participant Agentic
-    participant DB
-    participant LLM
+    participant LangGraph
+    participant Orchestrator
+    participant RabbitMQ
+    participant Worker
+    participant Tools
+    participant Redis
+    participant Evaluator
     
     User->>API: Submit Query
-    API->>Cache: Check similarity
+    API->>Cache: Check semantic similarity
     
-    alt Cache Hit
+    alt Cache Hit (similarity > 0.85)
         Cache-->>API: Return cached answer
         API-->>User: Response (50-100ms)
     else Cache Miss
-        Cache-->>Router: Route query
-        Router->>LLM: Classify complexity
+        Cache->>Router: Route query
+        Router->>Router: LLM classify complexity
         
         alt Simple Query
-            Router->>Normal: Process
-            Normal->>DB: Vector search
-            DB-->>Normal: Top-k documents
-            Normal->>LLM: Generate answer
-            LLM-->>Normal: Response
+            Router->>Normal: Process with Normal RAG
+            Normal->>Tools: Vector search (ChromaDB)
+            Tools-->>Normal: Top-k documents
+            Normal->>Tools: LLM generate answer
+            Tools-->>Normal: Response
             Normal-->>API: Final answer
+            API->>Cache: Store in cache
             API-->>User: Response (500-1500ms)
-        else Complex Query
-            Router->>Agentic: Queue task
-            Agentic-->>User: Task ID
-            Note over Agentic,DB: Async Processing
-            Agentic->>DB: Multi-step reasoning
-            Agentic->>LLM: Generate answer
-            LLM-->>Agentic: Response
-            Agentic-->>User: Poll for result (1500-5000ms)
+            
+        else Complex Query (Agentic RAG)
+            Router->>LangGraph: Create agent plan
+            LangGraph->>LangGraph: Classify & extract entities
+            LangGraph->>LangGraph: Decide tools needed
+            LangGraph-->>Orchestrator: Agent plan with steps
+            
+            Note over Orchestrator,Worker: Distributed Execution
+            
+            loop For each step in plan
+                Orchestrator->>RabbitMQ: Publish step
+                RabbitMQ->>Worker: Deliver step
+                
+                alt Retrieval Step
+                    Worker->>Tools: Vector search
+                    Worker->>Tools: Graph search (Neo4j)
+                    Worker->>Tools: Entity matching
+                else Reasoning Step
+                    Worker->>Tools: LLM analysis
+                end
+                
+                Worker->>Redis: Store step result
+                Orchestrator->>Redis: Poll for result
+                Redis-->>Orchestrator: Step result
+            end
+            
+            Orchestrator->>Orchestrator: Generate answer from results
+            Orchestrator->>Evaluator: Evaluate quality
+            
+            alt Quality Good
+                Evaluator-->>API: Final answer
+                API->>Cache: Store in cache
+                API-->>User: Response (1500-5000ms)
+            else Needs Replanning
+                Evaluator->>LangGraph: Create additional step
+                LangGraph-->>Orchestrator: New step
+                Note over Orchestrator,Worker: Execute additional step
+                Orchestrator->>RabbitMQ: Publish new step
+                RabbitMQ->>Worker: Execute
+                Worker->>Redis: Store result
+                Orchestrator->>Orchestrator: Generate final answer
+                Orchestrator-->>API: Final answer
+                API->>Cache: Store in cache
+                API-->>User: Response (2000-6000ms)
+            end
         end
-        
-        API->>Cache: Store answer
     end
 ```
 
