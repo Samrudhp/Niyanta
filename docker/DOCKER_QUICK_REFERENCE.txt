@@ -1,0 +1,214 @@
+╔══════════════════════════════════════════════════════════════╗
+║                  NIYANTA - DOCKER QUICK REFERENCE            ║
+║              Updated: March 10, 2026 - Kubernetes Ready      ║
+╚══════════════════════════════════════════════════════════════╝
+
+📦 SETUP & DEPLOYMENT
+┌──────────────────────────────────────────────────────────────┐
+│ First Time Setup:                                            │
+│   cp .env.example .env                                       │
+│   nano .env  # Add GROQ_API_KEY                              │
+│   docker-compose up -d                                       │
+│                                                              │
+│ Development Mode (hot-reload):                               │
+│   docker-compose -f docker-compose.yml \                     │
+│     -f docker-compose.dev.yml up                             │
+│                                                              │
+│ Verify all services running:                                 │
+│   docker-compose ps                                          │
+│   curl http://localhost:8000/health                          │
+└──────────────────────────────────────────────────────────────┘
+
+🔧 MANAGEMENT
+┌──────────────────────────────────────────────────────────────┐
+│ View Logs:          ./scripts/logs.sh                        │
+│ Check Status:       docker-compose ps                        │
+│ Restart:            docker-compose restart                   │
+│ Stop:               docker-compose down                      │
+│ Stop + Remove Vols: docker-compose down -v  (⚠️ DELETES DATA)│
+│ Update & Restart:   docker-compose up -d --build             │
+│ Rebuild all:        docker-compose build                     │
+└──────────────────────────────────────────────────────────────┘
+
+🌐 ACCESS POINTS
+┌──────────────────────────────────────────────────────────────┐
+│ Backend API:        http://localhost:8000                    │
+│ API Docs:           http://localhost:8000/docs               │
+│ Health Check:       http://localhost:8000/health             │
+│ RabbitMQ UI:        http://localhost:15672  (guest/guest)    │
+│ Frontend (npm):     http://localhost:5173  (separate dev)    │
+└──────────────────────────────────────────────────────────────┘
+
+🔄 HORIZONTAL SCALING - NEW & TESTED ✅
+┌──────────────────────────────────────────────────────────────┐
+│ Scale Workers UP (tested 3→10):                              │
+│   docker-compose up -d --scale worker=7                      │
+│   docker-compose up -d --scale worker=10  # Maximum          │
+│                                                              │
+│ Scale Workers DOWN:                                          │
+│   docker-compose up -d --scale worker=3   # Default/minimum  │
+│                                                              │
+│ Monitor scaling:                                             │
+│   watch 'docker-compose ps | grep worker'                    │
+│                                                              │
+│ Each worker:                                                 │
+│   ✓ Gets unique ID (container hostname)                      │
+│   ✓ Shares Redis cache (step results)                        │
+│   ✓ Shares RabbitMQ queue (fair load, prefetch=1)            │
+│   ✓ Connects to same databases                               │
+└──────────────────────────────────────────────────────────────┘
+
+📊 MONITORING
+┌──────────────────────────────────────────────────────────────┐
+│ All Logs:           docker-compose logs -f                   │
+│ Backend Logs:       docker-compose logs -f backend           │
+│ Worker Logs:        docker-compose logs -f worker            │
+│ Resource Usage:     docker stats                             │
+│ Specific worker:    docker logs <container_name>             │
+│ Check worker IDs:   docker logs worker_name | grep "ID"      │
+└──────────────────────────────────────────────────────────────┘
+
+🗄️ DATA & VOLUMES
+┌──────────────────────────────────────────────────────────────┐
+│ Persistent Volumes:                                          │
+│   - redis-data       (Cache & step results)                  │
+│   - rabbitmq-data    (Queue)                                 │
+│                                                              │
+│ Optional (commented out in compose):                         │
+│   - neo4j-data       (Graph DB)                              │
+│   - chromadb-data    (Vector DB)                             │
+│                                                              │
+│ Backup Data:        ./scripts/backup.sh                      │
+│ Restore Backup:     ./scripts/restore.sh                     │
+│ Clean Unused:       docker system prune                      │
+│ Delete Volumes:     docker-compose down -v (⚠️ DELETES DATA)│
+└──────────────────────────────────────────────────────────────┘
+
+🔒 SECURITY CHECKLIST
+┌──────────────────────────────────────────────────────────────┐
+│ ✓ Change ADMIN_PASSWORD in .env (if using admin endpoints)   │
+│ ✓ Change RABBITMQ_PASSWORD in .env (default: guest)         │
+│ ✓ Change NEO4J_PASSWORD in .env (if using Neo4j)             │
+│ ✓ Never commit .env to git (add to .gitignore)               │
+│ ✓ Use strong passwords in production                         │
+│ ✓ Set GROQ_API_KEY securely (use secrets in production)     │
+│ ✓ Enable firewall on production server                       │
+│ ✓ Use HTTPS/SSL for production (nginx reverse proxy)         │
+└──────────────────────────────────────────────────────────────┘
+
+🚀 PRODUCTION OPTIONS
+┌──────────────────────────────────────────────────────────────┐
+│ Option A: Docker Compose (this setup)                        │
+│   ✓ Simple, manual scaling                                   │
+│   ✓ Good for small to medium deployments                     │
+│   ✓ Deploy to: AWS EC2, DigitalOcean, Linode, etc          │
+│                                                              │
+│ Option B: Kubernetes (RECOMMENDED for production)            │
+│   ✓ Auto-scaling (HPA 3→10 workers)                          │
+│   ✓ Self-healing pods                                        │
+│   ✓ Deploy to: AWS EKS, GCP GKE, DigitalOcean K8s, etc      │
+│   ✓ Use manifests in: ../k8s/                                │
+│   ✓ kubectl apply -f ../k8s/                                 │
+└──────────────────────────────────────────────────────────────┘
+
+🐛 TROUBLESHOOTING
+┌──────────────────────────────────────────────────────────────┐
+│ Services not starting:                                       │
+│   → Check logs: docker-compose logs                          │
+│   → Verify .env file exists: ls -la .env                    │
+│   → Check port conflicts: docker ps | grep 8000             │
+│                                                              │
+│ Workers not consuming tasks:                                 │
+│   → Check RabbitMQ UI: http://localhost:15672                │
+│   → View queue status: docker-compose logs rabbitmq          │
+│   → Restart workers: docker-compose restart worker           │
+│                                                              │
+│ High memory usage:                                           │
+│   → Check: docker stats                                      │
+│   → Reduce cache: Edit docker-compose.yml redis maxmemory   │
+│   → Monitor: watch 'docker stats --no-stream'                │
+│                                                              │
+│ Cannot connect to services:                                  │
+│   → Verify network: docker network ls                        │
+│   → Check DNS: docker-compose exec backend ping redis        │
+│   → Rebuild: docker-compose down && docker-compose up -d    │
+└──────────────────────────────────────────────────────────────┘
+
+📚 USEFUL COMMANDS
+┌──────────────────────────────────────────────────────────────┐
+│ # Get container info                                         │
+│ docker-compose ps -a                                         │
+│ docker inspect <container_name>                              │
+│                                                              │
+│ # Execute command in container                              │
+│ docker-compose exec backend python -c "import requests"      │
+│ docker-compose exec redis redis-cli ping                     │
+│ docker-compose exec rabbitmq rabbitmq-diagnostics ping       │
+│                                                              │
+│ # View resource usage                                       │
+│ docker stats                                                 │
+│ docker system df                                             │
+│                                                              │
+│ # Network troubleshooting                                   │
+│ docker network ls                                            │
+│ docker network inspect backend-network                       │
+│                                                              │
+│ # Clean up                                                  │
+│ docker system prune -a                                       │
+│ docker volume prune                                          │
+└──────────────────────────────────────────────────────────────┘
+
+🔗 RELATED FILES
+┌──────────────────────────────────────────────────────────────┐
+│ docker-compose.yml          ← Main configuration             │
+│ docker-compose.dev.yml      ← Dev overrides (hot-reload)     │
+│ .env.example               ← Environment template             │
+│ README.md                  ← Full documentation               │
+│ DOCKER_SETUP_SUMMARY.md    ← Setup history                   │
+│ scripts/                   ← Helper scripts                   │
+│ ../k8s/                    ← Kubernetes manifests             │
+└──────────────────────────────────────────────────────────────┘
+
+✨ NEW & TESTED (March 10, 2026)
+┌──────────────────────────────────────────────────────────────┐
+│ ✅ Kubernetes deployment (full tested setup in k8s/)          │
+│ ✅ Horizontal worker scaling (3→10, tested)                  │
+│ ✅ Worker ID tracking (unique container hostnames)           │
+│ ✅ Synchronized configs (Docker ↔ Kubernetes)               │
+│ ✅ Redis health checks & persistence                         │
+│ ✅ RabbitMQ fair load distribution (prefetch_count=1)       │
+│ ✅ Auto-generated .env.example                              │
+│ ✅ Updated all scripts & references                          │
+└──────────────────────────────────────────────────────────────┘
+│   → Verify .env file exists                                  │
+│   → Check ports not in use: lsof -i :8000                    │
+│                                                              │
+│ Out of memory:                                               │
+│   → Check usage: docker stats                                │
+│   → Reduce workers to 2                                      │
+│   → Increase Docker memory limit                             │
+│                                                              │
+│ Connection refused:                                          │
+│   → Wait for health checks: docker-compose ps                │
+│   → Restart service: docker-compose restart <service>        │
+└──────────────────────────────────────────────────────────────┘
+
+📖 DOCUMENTATION
+┌──────────────────────────────────────────────────────────────┐
+│ Complete Guide:     docs/DEPLOYMENT.md                       │
+│ Setup Summary:      DOCKER_SETUP_SUMMARY.md                  │
+│ Architecture:       README.md                                │
+│ Backend Details:    docs/BACKEND.md                          │
+│ Frontend Details:   docs/FRONTEND.md                         │
+└──────────────────────────────────────────────────────────────┘
+
+💡 TIPS
+┌──────────────────────────────────────────────────────────────┐
+│ • Use ./deploy.sh for first-time setup                       │
+│ • Always backup before major changes                         │
+│ • Test locally before production deployment                  │
+│ • Monitor logs in production                                 │
+│ • Keep Docker images updated                                 │
+└──────────────────────────────────────────────────────────────┘
+
+🎉 Your project is production-ready and deployable everywhere!
