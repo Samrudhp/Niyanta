@@ -83,6 +83,14 @@ function AdminDashboard() {
 
         {/* Footer */}
         <div className="p-4 border-t border-gray-800 space-y-2">
+          <a
+            href="http://localhost:3000"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-blue-400 transition-colors"
+          >
+            📊 View Metrics
+          </a>
           <button
             onClick={() => navigate('/')}
             className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:text-gray-400 transition-colors"

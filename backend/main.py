@@ -7,9 +7,12 @@ import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from datetime import datetime
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from config.settings import settings
+from utils.metrics import MetricsMiddleware
 from models.schemas import (
     QueryRequest,
     QueryResponse,
@@ -84,6 +87,9 @@ app = FastAPI(
     version=settings.APP_VERSION,
     lifespan=lifespan
 )
+
+# Add metrics middleware (BEFORE CORS for proper tracking)
+app.add_middleware(MetricsMiddleware)
 
 # Add CORS middleware
 app.add_middleware(
@@ -210,6 +216,15 @@ async def health_check():
         status="healthy" if all_healthy else "degraded",
         timestamp=datetime.now(),
         services=services
+    )
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
     )
 
 

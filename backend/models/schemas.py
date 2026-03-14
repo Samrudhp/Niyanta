@@ -225,6 +225,9 @@ class StepResult(BaseModel):
     data: Any
     error: Optional[str] = None
     execution_time_ms: float
+    worker_id: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
 
 
 # ============= RAG Models =============

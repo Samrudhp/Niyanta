@@ -5,7 +5,10 @@ Does NOT plan or decide - only executes.
 """
 import time
 import asyncio
+import os
+import uuid
 from typing import List
+from datetime import datetime
 from groq import AsyncGroq
 
 from database.redis_client import redis_client
@@ -27,6 +30,9 @@ class AgentWorker:
     def __init__(self):
         self.groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
         self.running = False
+        # Worker identification for tracking and monitoring
+        self.worker_id = os.getenv("WORKER_ID") or os.getenv("HOSTNAME") or f"worker-{uuid.uuid4().hex[:8]}"
+        print(f"🆔 Worker ID: {self.worker_id}")
     
     async def start(self):
         """Start consuming steps from RabbitMQ."""
@@ -50,6 +56,7 @@ class AgentWorker:
         Execute it and store result in Redis.
         """
         start_time = time.time()
+        started_at = datetime.utcnow()
         
         try:
             # Route to appropriate handler
@@ -86,13 +93,17 @@ class AgentWorker:
         
         # Store result in Redis
         execution_time = (time.time() - start_time) * 1000
+        completed_at = datetime.utcnow()
         
         result = StepResult(
             step_id=step.step_id,
             status=status,
             data=result_data,
             error=error,
-            execution_time_ms=execution_time
+            execution_time_ms=execution_time,
+            worker_id=self.worker_id,
+            started_at=started_at,
+            completed_at=completed_at
         )
         
         result_key = f"step_result:{step.step_id}"

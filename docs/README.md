@@ -270,13 +270,41 @@ Niyanta/
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Option 1: Docker Deployment (Recommended)
+
+**Prerequisites:** Docker 20.10+ and Docker Compose 2.0+
+
+```bash
+# 1. Clone and configure
+git clone <repo-url>
+cd Niyanta
+cp docker/config/.env.example .env
+# Edit .env with your GROQ_API_KEY
+
+# 2. Deploy everything
+./docker/scripts/deploy.sh
+
+# 3. Access
+# Frontend:  http://localhost:3000
+# Backend:   http://localhost:8000/docs
+# RabbitMQ:  http://localhost:15672
+```
+
+✅ All services (Backend, Frontend, Workers, Databases) in one command!
+
+📖 **[Complete Docker Deployment Guide](DEPLOYMENT.md)**
+
+---
+
+### Option 2: Manual Setup (Development)
+
+**Prerequisites:**
 - Python 3.10+
 - Node.js 18+
 - Docker (for Redis, RabbitMQ)
 - Neo4j Desktop or Server
 
-### Backend Setup
+**Backend Setup:**
 ```bash
 cd backend
 python -m venv venv
@@ -296,7 +324,7 @@ python main.py  # Port 8000
 python worker_main.py
 ```
 
-### Frontend Setup
+**Frontend Setup:**
 ```bash
 cd frontend
 npm install
@@ -304,6 +332,77 @@ npm run dev  # Port 5173
 ```
 
 ---
+
+## 🐳 Docker Deployment (Recommended)
+
+### Quick Start with Docker
+
+The easiest way to deploy Niyanta is using Docker. Everything is containerized and ready to run:
+
+```bash
+# 1. Clone repository
+git clone <your-repo-url>
+cd Niyanta
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your GROQ_API_KEY and passwords
+
+# 3. Deploy with one command
+./deploy.sh
+```
+
+**What you get:**
+- ✅ All services running (Backend, Frontend, Workers, Databases)
+- ✅ Automatic health checks and restarts
+- ✅ Persistent data volumes
+- ✅ Production-optimized images
+- ✅ Network isolation and security
+
+**Access Points:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000/docs
+- RabbitMQ Management: http://localhost:15672
+- Neo4j Browser: http://localhost:7474
+
+**Management Commands:**
+```bash
+./logs.sh       # View logs
+./backup.sh     # Backup databases
+./restore.sh    # Restore from backup
+```
+
+📖 **[Complete Deployment Guide →](./docs/DEPLOYMENT.md)**
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  Docker Compose - Production Ready              │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  Frontend (Nginx)  ←→  Backend API (FastAPI)    │
+│                              ↓                  │
+│         ┌────────────────────┴─────────┐        │
+│         ↓                ↓              ↓       │
+│    Worker-1         Worker-2       Worker-3     │
+│         ↓                ↓              ↓       │
+│  ┌──────────────────────────────────────────┐   │
+│  │  Redis  │  RabbitMQ  │  Neo4j  │ Chroma  │   │
+│  └──────────────────────────────────────────┘   │
+│        (All with persistent volumes)            │
+└─────────────────────────────────────────────────┘
+```
+
+**Key Features:**
+- Multi-stage Docker builds (optimized image sizes)
+- Health checks for all services
+- Automatic container restarts
+- Network isolation (frontend/backend networks)
+- Volume persistence for databases
+- Non-root users for security
+- Resource limits and scaling support
+
 
 ## 📈 System Metrics
 
