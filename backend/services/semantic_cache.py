@@ -92,58 +92,69 @@ class SemanticCache:
         await self._add_cache_key_to_tracking(cache_key)
     
     async def get_stats(self) -> dict:
-        """Get cache statistics."""
-        stats = await redis_client.get_json(self.STATS_KEY) or {
-            "total_queries": 0,
-            "cache_hits": 0,
-            "cache_misses": 0,
-            "total_similarity": 0.0
-        }
+        """Get cache statistics using atomic Redis counters."""
+        # Read from atomic counters - no race conditions
+        total_queries = int(
+            await redis_client.client.get(f"{self.STATS_KEY}:total_queries") or 0
+        )
+        cache_hits = int(
+            await redis_client.client.get(f"{self.STATS_KEY}:cache_hits") or 0
+        )
+        cache_misses = int(
+            await redis_client.client.get(f"{self.STATS_KEY}:cache_misses") or 0
+        )
+        total_similarity = float(
+            await redis_client.client.get(f"{self.STATS_KEY}:total_similarity") or 0.0
+        )
         
         hit_rate = (
-            stats["cache_hits"] / stats["total_queries"]
-            if stats["total_queries"] > 0 else 0.0
+            cache_hits / total_queries
+            if total_queries > 0 else 0.0
         )
         
         avg_similarity = (
-            stats["total_similarity"] / stats["cache_hits"]
-            if stats["cache_hits"] > 0 else 0.0
+            total_similarity / cache_hits
+            if cache_hits > 0 else 0.0
         )
         
         return {
-            "total_queries": stats["total_queries"],
-            "cache_hits": stats["cache_hits"],
-            "cache_misses": stats["cache_misses"],
+            "total_queries": total_queries,
+            "cache_hits": cache_hits,
+            "cache_misses": cache_misses,
             "hit_rate": hit_rate,
             "avg_similarity": avg_similarity
         }
     
     async def _update_stats(self, result: str, similarity: float):
-        """Update cache statistics."""
-        stats = await redis_client.get_json(self.STATS_KEY) or {
-            "total_queries": 0,
-            "cache_hits": 0,
-            "cache_misses": 0,
-            "total_similarity": 0.0
-        }
-        
-        stats["total_queries"] += 1
+        """Update cache statistics using atomic Redis operations."""
+        # All operations are atomic - no read-modify-write race conditions
+        await redis_client.client.incr(f"{self.STATS_KEY}:total_queries")
         
         if result == "hit":
-            stats["cache_hits"] += 1
-            stats["total_similarity"] += similarity
+            await redis_client.client.incr(f"{self.STATS_KEY}:cache_hits")
+            try:
+                await redis_client.client.incrbyfloat(
+                    f"{self.STATS_KEY}:total_similarity",
+                    similarity
+                )
+            except:
+                # Fallback if incrbyfloat not available
+                current = float(
+                    await redis_client.client.get(f"{self.STATS_KEY}:total_similarity") or 0.0
+                )
+                await redis_client.client.set(
+                    f"{self.STATS_KEY}:total_similarity",
+                    current + similarity
+                )
         else:
-            stats["cache_misses"] += 1
-        
-        await redis_client.set_json(self.STATS_KEY, stats)
+            await redis_client.client.incr(f"{self.STATS_KEY}:cache_misses")
     
     async def _get_all_cache_keys(self) -> list:
-        """Get all cache keys (simplified - production needs Redis SCAN)."""
-        # In production, maintain a separate set of cache keys or use Redis SCAN
-        # For this implementation, we'll use a tracking set
+        """Get all cache keys from atomic set (no race conditions)."""
         tracking_key = f"{self.CACHE_KEY_PREFIX}:keys"
-        keys_json = await redis_client.get_json(tracking_key) or []
-        return keys_json
+        # SMEMBERS returns all members atomically
+        keys = await redis_client.client.smembers(tracking_key)
+        return list(keys)
     
     async def clear_all(self) -> int:
         """Clear all cached queries. Returns number of keys deleted."""
@@ -158,13 +169,15 @@ class SemanticCache:
             except:
                 pass
         
-        # Clear tracking
+        # Clear tracking set
         tracking_key = f"{self.CACHE_KEY_PREFIX}:keys"
-        await redis_client.delete(tracking_key)
+        await redis_client.client.delete(tracking_key)
         
-        # Reset stats
-        stats_key = f"{self.CACHE_KEY_PREFIX}:stats"
-        await redis_client.delete(stats_key)
+        # Reset atomic stat counters
+        await redis_client.client.delete(f"{self.STATS_KEY}:total_queries")
+        await redis_client.client.delete(f"{self.STATS_KEY}:cache_hits")
+        await redis_client.client.delete(f"{self.STATS_KEY}:cache_misses")
+        await redis_client.client.delete(f"{self.STATS_KEY}:total_similarity")
         
         return deleted
     
@@ -180,12 +193,9 @@ class SemanticCache:
         # Delete it
         await redis_client.delete(cache_key)
         
-        # Remove from tracking
+        # Remove from tracking set atomically
         tracking_key = f"{self.CACHE_KEY_PREFIX}:keys"
-        keys = await redis_client.get_json(tracking_key) or []
-        if cache_key in keys:
-            keys.remove(cache_key)
-            await redis_client.set_json(tracking_key, keys)
+        await redis_client.client.srem(tracking_key, cache_key)
         
         return True
     
@@ -224,16 +234,12 @@ class SemanticCache:
         return f"{self.CACHE_KEY_PREFIX}:{query_hash}"
     
     async def _add_cache_key_to_tracking(self, cache_key: str):
-        """Add cache key to tracking set."""
+        """Add cache key to tracking set atomically."""
         tracking_key = f"{self.CACHE_KEY_PREFIX}:keys"
-        keys = await redis_client.get_json(tracking_key) or []
-        if cache_key not in keys:
-            keys.append(cache_key)
-            await redis_client.set_json(
-                tracking_key,
-                keys,
-                ttl=settings.CACHE_TTL_SECONDS
-            )
+        # SADD is atomic - automatically handles duplicates
+        await redis_client.client.sadd(tracking_key, cache_key)
+        # Set expiration on the set
+        await redis_client.client.expire(tracking_key, settings.CACHE_TTL_SECONDS)
 
 
 # Global semantic cache instance

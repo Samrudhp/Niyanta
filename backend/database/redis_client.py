@@ -17,14 +17,21 @@ class RedisClient:
         self.client: Optional[Redis] = None
     
     async def connect(self):
-        """Initialize Redis connection pool."""
+        """Initialize Redis connection pool with optimized settings."""
         self.pool = ConnectionPool(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             db=settings.REDIS_DB,
             password=settings.REDIS_PASSWORD,
             decode_responses=False,  # Handle binary for embeddings
-            max_connections=20
+            max_connections=50,  # Increased from 20 to handle concurrent load
+            socket_connect_timeout=10,
+            socket_keepalive=True,
+            socket_keepalive_options={
+                1: 3,    # TCP_KEEPIDLE
+                2: 3,    # TCP_KEEPINTVL
+                3: 3,    # TCP_KEEPCNT
+            }
         )
         self.client = Redis(connection_pool=self.pool)
     

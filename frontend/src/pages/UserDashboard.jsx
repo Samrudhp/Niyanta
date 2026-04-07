@@ -1,15 +1,42 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../context/AuthContext';
 import '../App.css';
 
 function UserDashboard() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedHistory, setSelectedHistory] = useState(null);
+
+  // Load history from localStorage per user
+  useEffect(() => {
+    if (user) {
+      const userHistoryKey = `niyanta_history_${user.id}`;
+      const savedHistory = localStorage.getItem(userHistoryKey);
+      if (savedHistory) {
+        try {
+          setHistory(JSON.parse(savedHistory));
+        } catch (e) {
+          localStorage.removeItem(userHistoryKey);
+        }
+      }
+    }
+  }, [user]);
+
+  // Save history to localStorage whenever it changes
+  useEffect(() => {
+    if (user && history.length > 0) {
+      const userHistoryKey = `niyanta_history_${user.id}`;
+      localStorage.setItem(userHistoryKey, JSON.stringify(history));
+    }
+  }, [history, user]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,11 +51,15 @@ function UserDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-User-ID': user?.id || 'anonymous',
+          'X-Session-Token': user?.sessionToken || '',
         },
         body: JSON.stringify({
           query: query,
           use_cache: true,
           force_agentic: false,
+          user_id: user?.id,
+          username: user?.username,
         }),
       });
 
@@ -79,6 +110,18 @@ function UserDashboard() {
           <div className="text-xs text-gray-500 uppercase tracking-wider">Query Dashboard</div>
         </div>
 
+        {/* User Info */}
+        <div className="px-6 py-4 border-b border-gray-800 bg-gray-900/30">
+          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Current User</div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{user?.username || 'Guest'}</div>
+              <div className="text-xs text-gray-600 font-mono">{user?.id?.slice(0, 12)}...</div>
+            </div>
+            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+          </div>
+        </div>
+
         {/* History List */}
         <div className="flex-1 overflow-y-auto">
           {history.length > 0 ? (
@@ -119,7 +162,16 @@ function UserDashboard() {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-800">
+        <div className="p-4 border-t border-gray-800 space-y-3">
+          <button
+            onClick={() => {
+              logout();
+              navigate('/');
+            }}
+            className="w-full py-2 px-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            Logout
+          </button>
           <div className="text-xs text-gray-600 leading-relaxed">
             Powered by Agentic RAG
           </div>

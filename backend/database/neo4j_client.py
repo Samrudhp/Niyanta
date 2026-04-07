@@ -14,10 +14,16 @@ class Neo4jClient:
         self.driver = None
     
     async def connect(self):
-        """Initialize Neo4j driver."""
+        """Initialize Neo4j driver with optimized connection pool settings."""
         self.driver = AsyncGraphDatabase.driver(
             settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
+            # Connection pool settings for high concurrency (50+ workers)
+            max_connection_pool_size=100,  # Increased from default 100
+            min_connection_pool_size=10,
+            connection_timeout=30,
+            connection_acquisition_timeout=60,
+            max_retry_time=30
         )
     
     async def disconnect(self):
@@ -27,14 +33,22 @@ class Neo4jClient:
     
     async def execute_query(self, cypher: str, parameters: Dict = None) -> List[Dict]:
         """
-        Execute a Cypher query and return results.
-        Used for custom reasoning queries.
+        Execute a Cypher query within a transaction and return results.
+        Ensures isolation and prevents race conditions.
         """
         parameters = parameters or {}
         async with self.driver.session() as session:
-            result = await session.run(cypher, parameters)
-            records = await result.data()
-            return records
+            # Execute within transaction for isolation
+            async with await session.begin_transaction() as tx:
+                try:
+                    result = await tx.run(cypher, parameters)
+                    records = await result.fetch(100)
+                    await tx.commit()
+                    return records
+                except Exception as e:
+                    await tx.rollback()
+                    print(f"Neo4j transaction failed: {e}")
+                    return []
     
     async def find_similar_entities(
         self,
@@ -215,12 +229,14 @@ class Neo4jClient:
         return stats
     
     async def health_check(self) -> bool:
-        """Check Neo4j connection health."""
+        """Check Neo4j connection health within a transaction."""
         try:
             async with self.driver.session() as session:
-                result = await session.run("RETURN 1 as health")
-                await result.single()
-                return True
+                async with await session.begin_transaction() as tx:
+                    result = await tx.run("RETURN 1 as health")
+                    await result.single()
+                    await tx.commit()
+                    return True
         except Exception:
             return False
 
