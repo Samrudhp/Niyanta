@@ -19,11 +19,9 @@ class Neo4jClient:
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
             # Connection pool settings for high concurrency (50+ workers)
-            max_connection_pool_size=100,  # Increased from default 100
-            min_connection_pool_size=10,
+            max_connection_pool_size=100,
             connection_timeout=30,
-            connection_acquisition_timeout=60,
-            max_retry_time=30
+            connection_acquisition_timeout=60
         )
     
     async def disconnect(self):
