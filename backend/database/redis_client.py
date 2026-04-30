@@ -4,6 +4,7 @@ Handles connection pooling and async operations.
 """
 import json
 import asyncio
+import socket
 from typing import Optional, Any
 from redis.asyncio import Redis, ConnectionPool
 from config.settings import settings
@@ -18,27 +19,40 @@ class RedisClient:
     
     async def connect(self):
         """Initialize Redis connection pool with optimized settings."""
+        # Use named socket constants for cross-version compatibility
+        # (raw ints 1/2/3 worked in redis-py 4.x but are unreliable in 5.x)
+        keepalive_opts = {}
+        try:
+            keepalive_opts = {
+                socket.TCP_KEEPIDLE: 3,   # seconds idle before probes
+                socket.TCP_KEEPINTVL: 3,  # seconds between probes
+                socket.TCP_KEEPCNT: 3,    # number of probes before giving up
+            }
+        except AttributeError:
+            # TCP_KEEPIDLE not available on all platforms (e.g. macOS < 10.8)
+            pass
+
         self.pool = ConnectionPool(
             host=settings.REDIS_HOST,
             port=settings.REDIS_PORT,
             db=settings.REDIS_DB,
             password=settings.REDIS_PASSWORD,
             decode_responses=False,  # Handle binary for embeddings
-            max_connections=50,  # Increased from 20 to handle concurrent load
+            max_connections=50,      # Handle concurrent load
             socket_connect_timeout=10,
             socket_keepalive=True,
-            socket_keepalive_options={
-                1: 3,    # TCP_KEEPIDLE
-                2: 3,    # TCP_KEEPINTVL
-                3: 3,    # TCP_KEEPCNT
-            }
+            socket_keepalive_options=keepalive_opts,
         )
         self.client = Redis(connection_pool=self.pool)
     
     async def disconnect(self):
-        """Close Redis connections."""
+        """Close Redis connections (compatible with redis-py 4.x and 5.x)."""
         if self.client:
-            await self.client.close()
+            # redis-py 5.x uses aclose(); fall back to close() for 4.x
+            if hasattr(self.client, 'aclose'):
+                await self.client.aclose()
+            else:
+                await self.client.close()
         if self.pool:
             await self.pool.disconnect()
     

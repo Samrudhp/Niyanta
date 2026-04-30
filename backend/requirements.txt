@@ -17,7 +17,7 @@ chromadb==0.4.22
 neo4j==5.16.0
 
 # Cache & Message Queue
-redis==5.0.1
+redis==5.0.8
 aio-pika==9.4.0
 
 # Monitoring & Observability

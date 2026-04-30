@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = None
     
     # Semantic Cache
-    CACHE_SIMILARITY_THRESHOLD: float = 0.92
+    # 0.85 catches semantically equivalent rephrasings (e.g. "What is FDIC?"
+    # vs "Tell me about FDIC insurance") while still rejecting genuinely
+    # different queries.  0.92 was too strict — only exact/near-exact strings
+    # hit the cache, giving a ~4% hit rate instead of the expected 40-60%.
+    CACHE_SIMILARITY_THRESHOLD: float = 0.85
     CACHE_TTL_SECONDS: int = 3600  # 1 hour
     
     # RabbitMQ

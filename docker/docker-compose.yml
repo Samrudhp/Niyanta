@@ -40,7 +40,7 @@ services:
       # RAG Config
       RETRIEVAL_TOP_K: "5"
       HYBRID_SEARCH_ENABLED: "true"
-      CACHE_SIMILARITY_THRESHOLD: "0.92"
+      CACHE_SIMILARITY_THRESHOLD: "0.85"
       CACHE_TTL_SECONDS: "3600"
       
       # Agentic Config
