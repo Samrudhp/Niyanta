@@ -21,10 +21,15 @@ class NormalRAG:
     def __init__(self):
         self.groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     
-    async def process_query(self, query: str, request_id: str) -> dict:
+    async def process_query(self, query: str, request_id: str, source_filter: str = None) -> dict:
         """
         Execute complete Normal RAG pipeline.
         Returns answer with metadata.
+        
+        Args:
+            query: User query text
+            request_id: Unique request identifier
+            source_filter: Optional ingestion_id to filter results
         """
         start_time = time.time()
         
@@ -32,7 +37,7 @@ class NormalRAG:
         query_embedding = embedding_service.embed_text(query)
         
         # Step 2: Retrieve relevant documents
-        retrieval_result = self._retrieve_documents(query_embedding)
+        retrieval_result = self._retrieve_documents(query_embedding, source_filter)
         
         # Step 3: Generate answer using LLM
         answer = await self._generate_answer(query, retrieval_result.documents)
@@ -54,27 +59,68 @@ class NormalRAG:
             "metadata": {
                 "num_documents": len(retrieval_result.documents),
                 "retrieval_mode": retrieval_result.retrieval_mode.value,
-                "model": settings.GROQ_MODEL
+                "model": settings.GROQ_MODEL,
+                "source_filter": source_filter
             },
             "processing_time_ms": processing_time
         }
     
-    def _retrieve_documents(self, query_embedding: List[float]) -> RetrievalResult:
+    def _retrieve_documents(self, query_embedding: List[float], source_filter: str = None) -> RetrievalResult:
         """Retrieve top-k relevant documents from ChromaDB."""
-        results = chroma_client.query(
-            query_embeddings=[query_embedding],
-            n_results=settings.RETRIEVAL_TOP_K
-        )
-        
-        # Convert to Document models
+        # Query both collections and merge results
         documents = []
-        for i, doc_id in enumerate(results['ids'][0]):
-            documents.append(Document(
-                doc_id=doc_id,
-                content=results['documents'][0][i],
-                metadata=results['metadatas'][0][i] if results['metadatas'][0] else {},
-                score=1.0 - results['distances'][0][i]  # Convert distance to similarity
-            ))
+        
+        # Query original collection
+        try:
+            results = chroma_client.query(
+                query_embeddings=[query_embedding],
+                n_results=settings.RETRIEVAL_TOP_K
+            )
+            
+            for i, doc_id in enumerate(results['ids'][0]):
+                documents.append(Document(
+                    doc_id=doc_id,
+                    content=results['documents'][0][i],
+                    metadata=results['metadatas'][0][i] if results['metadatas'][0] else {},
+                    score=1.0 - results['distances'][0][i]
+                ))
+        except Exception as e:
+            print(f"Failed to query original collection: {e}")
+        
+        # Query ingested collection
+        try:
+            ingested_collection = chroma_client.client.get_or_create_collection(
+                name=settings.INGESTED_COLLECTION_NAME
+            )
+            
+            # Build where clause for filtering
+            where_clause = None
+            if source_filter:
+                where_clause = {"ingestion_id": source_filter}
+            
+            ingested_results = ingested_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=settings.RETRIEVAL_TOP_K,
+                where=where_clause
+            )
+            
+            for i, doc_id in enumerate(ingested_results['ids'][0]):
+                documents.append(Document(
+                    doc_id=doc_id,
+                    content=ingested_results['documents'][0][i],
+                    metadata=ingested_results['metadatas'][0][i] if ingested_results['metadatas'][0] else {},
+                    score=1.0 - ingested_results['distances'][0][i]
+                ))
+        except Exception as e:
+            print(f"Failed to query ingested collection: {e}")
+        
+        # If source_filter is set, only use ingested documents
+        if source_filter:
+            documents = [doc for doc in documents if doc.metadata.get('ingestion_id') == source_filter]
+        
+        # Sort by score and take top K
+        documents.sort(key=lambda d: d.score, reverse=True)
+        documents = documents[:settings.RETRIEVAL_TOP_K]
         
         return RetrievalResult(
             documents=documents,
