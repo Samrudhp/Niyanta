@@ -5,7 +5,7 @@ Handles connection pooling and async operations.
 import json
 import asyncio
 import socket
-from typing import Optional, Any
+from typing import Optional, Any, List
 from redis.asyncio import Redis, ConnectionPool
 from config.settings import settings
 
@@ -84,6 +84,16 @@ class RedisClient:
     async def increment(self, key: str) -> int:
         """Increment counter."""
         return await self.client.incr(key)
+    
+    async def lpush(self, key: str, value: str):
+        """Push value to left of Redis list."""
+        await self.client.lpush(key, value)
+    
+    async def lrange(self, key: str, start: int, end: int) -> List[str]:
+        """Get range of values from Redis list."""
+        result = await self.client.lrange(key, start, end)
+        # Decode bytes to strings if needed
+        return [item.decode('utf-8') if isinstance(item, bytes) else item for item in result]
     
     async def health_check(self) -> bool:
         """Check Redis connection health."""

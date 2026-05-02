@@ -63,6 +63,16 @@ class Settings(BaseSettings):
     # Router Thresholds
     COMPLEXITY_THRESHOLD: float = 0.6  # Above this → Agentic RAG
     
+    # Ingestion Settings
+    GITHUB_TOKEN: Optional[str] = None  # Optional: for higher rate limits (60/hr → 5000/hr)
+    MAX_INGESTION_ISSUES: int = 100
+    MAX_INGESTION_PRS: int = 100
+    MAX_INGESTION_COMMITS: int = 50
+    MAX_INGESTION_PAGES: int = 20  # for web crawl
+    INGESTION_CHUNK_SIZE: int = 500  # words per chunk
+    INGESTION_CHUNK_OVERLAP: int = 50  # overlap words between chunks
+    INGESTED_COLLECTION_NAME: str = "niyanta_ingested"  # ChromaDB collection
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

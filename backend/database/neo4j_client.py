@@ -237,6 +237,77 @@ class Neo4jClient:
                     return True
         except Exception:
             return False
+    
+    # ============= Ingestion Methods =============
+    
+    async def create_ingested_entity(self, entity, ingestion_id: str):
+        """
+        Create or update an ingested entity node.
+        MERGE (n:IngestedEntity {name: $name, ingestion_id: $ingestion_id})
+        SET n.entity_type = $entity_type, n += $properties
+        """
+        cypher = """
+        MERGE (n:IngestedEntity {name: $name, ingestion_id: $ingestion_id})
+        SET n.entity_type = $entity_type
+        SET n += $properties
+        RETURN n
+        """
+        params = {
+            "name": entity.name,
+            "ingestion_id": ingestion_id,
+            "entity_type": entity.entity_type,
+            "properties": entity.properties
+        }
+        await self.execute_query(cypher, params)
+    
+    async def create_ingested_relationship(self, rel, ingestion_id: str):
+        """
+        Create relationship between ingested entities.
+        MATCH (a:IngestedEntity {name: $from_name, ingestion_id: $ingestion_id})
+        MATCH (b:IngestedEntity {name: $to_name, ingestion_id: $ingestion_id})
+        MERGE (a)-[r:{rel_type}]->(b)
+        SET r += $properties
+        """
+        # Dynamic relationship type requires string formatting (safe here as we control the input)
+        cypher = f"""
+        MATCH (a:IngestedEntity {{name: $from_name, ingestion_id: $ingestion_id}})
+        MATCH (b:IngestedEntity {{name: $to_name, ingestion_id: $ingestion_id}})
+        MERGE (a)-[r:{rel.relationship_type}]->(b)
+        SET r += $properties
+        RETURN r
+        """
+        params = {
+            "from_name": rel.from_entity,
+            "to_name": rel.to_entity,
+            "ingestion_id": ingestion_id,
+            "properties": rel.properties
+        }
+        await self.execute_query(cypher, params)
+    
+    async def delete_ingested_entities(self, ingestion_id: str):
+        """
+        Delete all entities and relationships for an ingestion.
+        MATCH (n:IngestedEntity {ingestion_id: $ingestion_id})
+        DETACH DELETE n
+        """
+        cypher = """
+        MATCH (n:IngestedEntity {ingestion_id: $ingestion_id})
+        DETACH DELETE n
+        """
+        await self.execute_query(cypher, {"ingestion_id": ingestion_id})
+    
+    async def get_ingested_entities(self, ingestion_id: str) -> List[Dict]:
+        """
+        Get all entities for an ingestion.
+        MATCH (n:IngestedEntity {ingestion_id: $ingestion_id})
+        RETURN n
+        """
+        cypher = """
+        MATCH (n:IngestedEntity {ingestion_id: $ingestion_id})
+        RETURN n.name as name, n.entity_type as entity_type
+        LIMIT 100
+        """
+        return await self.execute_query(cypher, {"ingestion_id": ingestion_id})
 
 
 # Global Neo4j client instance
