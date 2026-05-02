@@ -15,6 +15,10 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query text")
     use_cache: bool = Field(True, description="Whether to check semantic cache")
     force_agentic: bool = Field(False, description="Force Agentic RAG pipeline")
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    workspace_id: Optional[str] = None  # Filter by workspace
+    source_filter: Optional[str] = None  # ingestion_id to filter by
 
 
 class QueryResponse(BaseModel):
