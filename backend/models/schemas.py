@@ -188,8 +188,12 @@ class QueryClassification(str, Enum):
 class RetrievalMode(str, Enum):
     """Vector search strategy."""
     VECTOR_ONLY = "vector_only"
-    HYBRID = "hybrid"          # Vector + keyword
-    GRAPH = "graph"            # Graph traversal in Neo4j
+    HYBRID = "hybrid"              # Vector + keyword
+    GRAPH = "graph"                # Graph traversal in Neo4j
+    SOURCE_AWARE = "source_aware"  # Filter by intent/category tags
+    TEMPORAL = "temporal"          # Filter by temporal bucket
+    RESOLUTION_CHAIN = "resolution_chain"  # Follow issue→PR→file chains
+    HYBRID_RERANKED = "hybrid_reranked"    # Hybrid + cross-encoder rerank
 
 
 class StepType(str, Enum):
@@ -210,6 +214,8 @@ class AgentPlan(BaseModel):
     retrieval_mode: RetrievalMode = RetrievalMode.VECTOR_ONLY
     steps: List[str] = Field(default_factory=list)  # High-level step descriptions
     needs_graph_reasoning: bool = False
+    intent_tags: Optional[List[str]] = None      # NEW — detected intent tags
+    temporal_buckets: Optional[List[str]] = None  # NEW — temporal filter buckets
 
 
 class AgentStep(BaseModel):
