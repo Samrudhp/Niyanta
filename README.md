@@ -8,31 +8,7 @@ Production-ready agentic RAG system with a full knowledge ingestion layer. Inges
 
 Niyanta is a knowledge ingestion and Q&A platform. You point it at any source — a GitHub repo, a documentation site, a PDF, a YouTube video, a Reddit thread, or an RSS feed — and it extracts, chunks, embeds, and indexes the content. From there you can ask natural language questions and get answers with citations, explore the knowledge graph of entities and relationships, or generate digests summarizing what happened in a source over a time period.
 
-Under the hood the system uses LangGraph for intent-aware planning, RabbitMQ workers for scalable execution, ChromaDB for vector search, Neo4j for graph traversal, and a cross-encoder re-ranker for relevance scoring. A semantic cache keeps repeated queries fast.
-
-**What you can do:**
-- Ingest any of 6 source types with a single URL or PDF upload
-- Ask questions — answers cite the exact issue, PR, page, or timestamp they came from
-- Explore an interactive D3 knowledge graph of entities and relationships
-- Generate AI digests summarizing recent activity in a source
-- Filter queries to a specific source or workspace
-- View the full admin dashboard with analytics, cache management, and queue monitoring
-
-**Key Capabilities:**
-- 6-source ingestion layer (GitHub, Web, PDF, YouTube, Reddit, RSS)
-- Semantic metadata enrichment at ingest time (intent tags, temporal buckets, quality scores)
-- Hybrid retrieval: vector search + keyword search + Neo4j graph traversal
-- Reciprocal Rank Fusion (RRF) to combine retrieval results
-- Cross-encoder re-ranking for relevance scoring
-- Intent-aware query routing (decision / fix / temporal / explanation / opinion)
-- Resolution chain traversal (issue → PR → file chains in Neo4j)
-- Workspace management to organize sources by project
-- Agentic planning with LangGraph state machine
-- Distributed worker architecture with RabbitMQ
-- Semantic caching with 45-60% hit rate
-- Interactive knowledge graph visualization (D3 force-directed)
-- Full-featured admin dashboard with analytics
-- Kubernetes-ready with horizontal pod autoscaling
+Under the hood the system uses LangGraph for intent-aware planning, *RabbitMQ* workers for scalable execution, ChromaDB for vector search, Neo4j for graph traversal, and a cross-encoder re-ranker for relevance scoring. A *Redis* semantic cache keeps repeated queries fast.
 
 ---
 
@@ -115,21 +91,6 @@ graph TB
 - Horizontally scalable architecture
 
 **[Read Full Agentic Architecture Documentation →](./docs/AGENTIC_ARCHITECTURE.md)**
-
----
-
-## Kubernetes Orchestration
-
-Scalable deployment with automatic resource management and self-healing:
-
-**Kubernetes Features:**
-- **Horizontal Pod Autoscaling (HPA):** Auto-scale workers based on queue depth and CPU
-- **StatefulSets:** Ordered deployment for databases with persistent storage
-- **Health Checks:** Liveness and readiness probes for automatic recovery
-- **Rolling Updates:** Zero-downtime deployments with gradual rollout
-- **Resource Requests/Limits:** CPU and memory management for node optimization
-- **Persistent Volumes:** Data persistence across pod restarts
-- **Multi-Environment:** Separate namespaces for dev/staging/prod
 
 ---
 
@@ -243,6 +204,30 @@ sequenceDiagram
 
 ---
 
+**What you can do:**
+- Ingest any of 6 source types with a single URL or PDF upload
+- Ask questions — answers cite the exact issue, PR, page, or timestamp they came from
+- Explore an interactive D3 knowledge graph of entities and relationships
+- Generate AI digests summarizing recent activity in a source
+- Filter queries to a specific source or workspace
+- View the full admin dashboard with analytics, cache management, and queue monitoring
+
+**Key Capabilities:**
+- 6-source ingestion layer (GitHub, Web, PDF, YouTube, Reddit, RSS)
+- Semantic metadata enrichment at ingest time (intent tags, temporal buckets, quality scores)
+- Hybrid retrieval: vector search + keyword search + Neo4j graph traversal
+- Reciprocal Rank Fusion (RRF) to combine retrieval results
+- Cross-encoder re-ranking for relevance scoring
+- Intent-aware query routing (decision / fix / temporal / explanation / opinion)
+- Resolution chain traversal (issue → PR → file chains in Neo4j)
+- Workspace management to organize sources by project
+- Agentic planning with LangGraph state machine
+- Distributed worker architecture with RabbitMQ
+- Semantic caching with 45-60% hit rate
+- Interactive knowledge graph visualization (D3 force-directed)
+- Full-featured admin dashboard with analytics
+- Kubernetes-ready with horizontal pod autoscaling
+
 ## Technology Stack
 
 **Backend Framework:**
@@ -292,6 +277,21 @@ sequenceDiagram
 - Grafana for dashboards
 - Loki + Promtail for log aggregation
 - Built-in `/metrics` endpoint
+
+---
+
+## Kubernetes Orchestration
+
+Scalable deployment with automatic resource management and self-healing:
+
+**Kubernetes Features:**
+- **Horizontal Pod Autoscaling (HPA):** Auto-scale workers based on queue depth and CPU
+- **StatefulSets:** Ordered deployment for databases with persistent storage
+- **Health Checks:** Liveness and readiness probes for automatic recovery
+- **Rolling Updates:** Zero-downtime deployments with gradual rollout
+- **Resource Requests/Limits:** CPU and memory management for node optimization
+- **Persistent Volumes:** Data persistence across pod restarts
+- **Multi-Environment:** Separate namespaces for dev/staging/prod
 
 ---
 
@@ -367,163 +367,12 @@ docker-compose up -d prometheus grafana loki promtail redis-exporter
 
 **[Read Full Monitoring Documentation →](./docker/MONITORING.md)**
 
----
-
-## Kubernetes Deployment & Autoscaling
-
-### Multi-Environment Architecture
-
-```
-Production Kubernetes Cluster:
-├── niyanta-prod (Production)
-│   ├── Backend Deployment (3+ replicas, CPU: 500m-1000m)
-│   ├── Frontend Deployment (2+ replicas, CPU: 100m)
-│   ├── Worker Pool (3-10 replicas, auto-scaling)
-│   ├── Monitoring Stack (Prometheus, Grafana, Loki)
-│   └── Database StatefulSets (Neo4j, Redis, ChromaDB)
-│
-├── niyanta-staging (Pre-Production)
-│   └── Mirror of prod with lower resource limits
-│
-└── niyanta-dev (Development)
-    └── Single replica per service for testing
-```
-
-### Horizontal Pod Autoscaling (HPA)
-
-**Worker Autoscaling:**
-```yaml
-HorizontalPodAutoscaler:
-  target: deployment/worker
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - CPU Utilization: 70%
-    - Custom Metric: Queue Depth (RabbitMQ messages > 50)
-```
-
-**Backend Autoscaling:**
-```yaml
-HorizontalPodAutoscaler:
-  target: deployment/backend
-  minReplicas: 2
-  maxReplicas: 5
-  metrics:
-    - CPU Utilization: 75%
-    - Memory Utilization: 80%
-    - HTTP Request Rate: > 100 req/sec
-```
+--- 
 
 **Scaling Behavior:**
 - **Scale Up:** When metric threshold exceeded, add pod every 60 seconds (max 4 pods)
 - **Scale Down:** When below threshold for 5 minutes, remove pod every 60 seconds
 - **Rapid Recovery:** Queue depth >100 → trigger immediate scaling
-
-### Resource Management
-
-**Backend Pod Resources:**
-```yaml
-requests:
-  cpu: 250m
-  memory: 512Mi
-limits:
-  cpu: 1000m
-  memory: 2Gi
-```
-
-**Worker Pod Resources:**
-```yaml
-requests:
-  cpu: 200m
-  memory: 256Mi
-limits:
-  cpu: 500m
-  memory: 1Gi
-```
-
-**Database Resources:**
-- Neo4j: 1CPU, 2Gi memory (can scale to 4Gi)
-- Redis: 500m CPU, 1Gi memory
-- ChromaDB: 250m CPU, 512Mi memory
-
-### Load Balancing & Traffic Distribution
-
-**Service Discovery:**
-- Backend services exposed via LoadBalancer service
-- Internal DNS: `backend.niyanta-prod.svc.cluster.local`
-- Frontend routes traffic via Kubernetes Ingress
-
-**Session Affinity:**
-- Not required (stateless backend design)
-- Long-running tasks tracked via Redis
-- RabbitMQ ensures ordered task processing per worker
-
-### Health Checks & Recovery
-
-**Liveness Probe (Restart if Dead):**
-```yaml
-livenessProbe:
-  httpGet:
-    path: /health
-    port: 8000
-  failureThreshold: 3
-  periodSeconds: 10
-```
-
-**Readiness Probe (Traffic Only if Ready):**
-```yaml
-readinessProbe:
-  httpGet:
-    path: /health
-    port: 8000
-  failureThreshold: 2
-  periodSeconds: 5
-```
-
-### Deployment Strategy
-
-**Rolling Update:**
-- Max surge: 25% (gradual rollout)
-- Max unavailable: 0 (no downtime)
-- Auto-rollback on health check failure
-
-**Canary Deployment (If Enabled):**
-- Route 10% traffic to new version
-- Monitor metrics for 5 minutes
-- Promote to 100% if successful
-
-### Monitoring at Scale
-
-**Prometheus in Kubernetes:**
-- Auto-discovers all pods with monitoring labels
-- Stores metrics in persistent volumes
-- Scrapes at 15-second intervals
-- 15-day retention period
-
-**Grafana in Kubernetes:**
-- Deployed as StatefulSet with persistent storage
-- Pre-loaded dashboards with Pod metrics
-- Kubernetes-aware templates
-- AlertManager integration
-
-**Pod-Level Metrics Tracked:**
-- CPU and memory utilization per pod
-- Network I/O per pod
-- Container restart count and uptime
-- Pod scheduling delays
-- Persistent volume usage
-
-**Deployment Manifests Available:**
-```
-k8s/
-├── 01-namespace-configmap.yaml      # Namespace + config
-├── 02-backend-deployment.yaml       # Backend with HPA
-├── 03-frontend-deployment.yaml      # Frontend
-├── 04-neo4j-statefulset.yaml        # Neo4j database
-├── 05-monitoring-deployment.yaml    # Prometheus, Grafana, Loki
-├── 06-rabbitmq-statefulset.yaml     # Message queue
-└── 07-services-ingress.yaml         # Ingress & services
-```
 
 **[Read Full Kubernetes Documentation →](./docs/DEPLOYMENT.md)**
 
@@ -557,7 +406,7 @@ Six source types, all triggered by a single URL or file upload:
 Queries run three search methods in parallel, then combine and re-rank:
 
 1. **Vector search** (ChromaDB) — semantic similarity via MiniLM-L6-v2 embeddings
-2. **BM25 keyword search** — exact term matching using `rank-bm25`, catches `issue#234`, `@mentions`, `` `backtick terms` ``
+2. **keyword search** — exact term matching using `rank-bm25`, catches `issue#234`, `@mentions`, `` `backtick terms` ``
 3. **Graph traversal** (Neo4j) — entity neighborhood expansion via semantic entity matching
 
 Results are combined with **Reciprocal Rank Fusion (RRF)**, then re-ranked by a **cross-encoder** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for final relevance scoring.
@@ -575,32 +424,6 @@ The LangGraph planner detects query intent from keywords and routes to the right
 | "what is / explain / how does" | `source_aware` | Filters to `explanation` + `reference` chunks |
 | "think / opinion / recommend" | `source_aware` | Filters to `opinion` + `community` chunks |
 | anything else | `hybrid_reranked` | Full hybrid search, no tag filter |
-
-### Knowledge Graph Visualization
-
-Interactive D3 force-directed graph accessible at `/graph`:
-
-- Source selector — view graph for any ingested source or all sources combined
-- Node types color-coded: repo (purple), author (blue), label (yellow), issue (green), PR (red)
-- Edge types color-coded and styled: RESOLVES (green thick), TAGGED (yellow dashed), CREATED (blue)
-- Node size scales with connection count
-- Click a node → right panel shows type, connections, source URL, connected edges
-- Double-click → expands 2-hop neighborhood
-- Find Path mode → shortest path between any two entities
-- Search → highlights matching nodes, dims others
-- Filter by node type and relationship type
-
-### Workspace Management
-
-Organize ingested sources into named workspaces:
-
-```
-POST /workspaces          → create workspace
-GET  /workspaces          → list all workspaces
-POST /workspaces/{id}/ingestions  → add ingestion to workspace
-POST /query  { workspace_id: "ws_abc" }  → query scoped to workspace
-GET  /workspaces/{id}/stats  → node/doc/entity counts per workspace
-```
 
 ### Dual Pipeline Architecture
 
@@ -647,55 +470,9 @@ Redis-based caching system with embedding similarity:
 - Return cached answer if similarity > 0.85
 - Store new answers with TTL of 24 hours
 
-**Performance Impact:**
-- Cache hit: 50-100ms response time (25-60x speedup)
-- Cache miss: Standard pipeline processing
-- Current hit rate: 45-60% in production
-- Storage: ~1KB per cached query
-
-### Admin Dashboard
-
-Full-featured administrative interface with six specialized tabs:
-
-**Overview Tab:**
-- Real-time system statistics
-- Service health monitoring
-- Active task count
-- Database metrics
-
-**Documents Tab:**
-- Document ingestion interface
-- Metadata management
-- Collection statistics
-- Bulk upload capability
-
-**Cache Tab:**
-- Cached query browser
-- Search functionality
-- Individual entry deletion
-- Bulk cache clearing
-
-**Queue Tab:**
-- RabbitMQ status monitoring
-- Message count tracking
-- Consumer information
-- Queue health checks
-
-**Tasks Tab:**
-- Async task list with filtering
-- Task status tracking
-- Retry failed tasks
-- Detailed task inspection
-
-**Analytics Tab:**
-- Query volume trends (line chart)
-- Pipeline distribution (pie chart)
-- Response time histogram (bar chart)
-- Database usage breakdown
-
 ---
 
-## API Endpoints
+<!-- ## API Endpoints
 
 ### Ingestion Endpoints
 
@@ -757,7 +534,7 @@ Full-featured administrative interface with six specialized tabs:
 | GET | `/admin/router-stats` | Router decision stats |
 | GET | `/admin/analytics` | Analytics data for charts |
 | POST | `/admin/tasks/{id}/retry` | Retry failed task |
-
+-->
 ---
 
 ## Project Structure
