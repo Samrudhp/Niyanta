@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi import BackgroundTasks, UploadFile, File
 from datetime import datetime
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
@@ -36,6 +37,22 @@ from models.schemas import (
     IngestRequest,
     IngestResponse
 )
+from models.ingestion_schemas import (
+    IngestURLRequest,
+    IngestStatusResponse,
+    DigestRequest,
+    DigestResponse,
+    IngestionListResponse
+)
+from models.workspace_schemas import (
+    WorkspaceCreate,
+    WorkspaceUpdate,
+    Workspace,
+    WorkspaceList,
+    WorkspaceDetail,
+    AddIngestionToWorkspace,
+    WorkspaceStats
+)
 from database.redis_client import redis_client
 from database.chroma_client import chroma_client
 from database.neo4j_client import neo4j_client
@@ -47,8 +64,9 @@ from services.normal_rag import normal_rag
 from services.agentic_rag.orchestrator import agentic_orchestrator
 from services.agentic_rag.langgraph_planner import langgraph_planner
 from services.admin_analytics import admin_analytics
-from services.agentic_rag.orchestrator import agentic_orchestrator
-from services.agentic_rag.langgraph_planner import langgraph_planner
+from services.ingestion.ingestion_pipeline import ingestion_pipeline
+from services.digest_service import digest_service
+from routers.graph_router import router as graph_router
 
 
 # ============= Lifespan Management =============
@@ -100,14 +118,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register routers
+app.include_router(graph_router)
+
 
 # ============= API Endpoints =============
 
 @app.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     """
-    Main query endpoint.
-    Flow: Cache Check → Router → (Normal RAG | Agentic RAG) → Cache Store
+    Main query endpoint with improved hybrid search and re-ranking.
+    Flow: Cache Check → Router → (Improved RAG | Normal RAG | Agentic RAG) → Cache Store
     """
     request_id = str(uuid.uuid4())
     start_time = time.time()
@@ -151,16 +172,33 @@ async def process_query(request: QueryRequest):
         )
         
         # Log router decision for analytics
-        pipeline = "agentic_rag" if classification != "normal_rag" else "normal_rag"
+        pipeline = "agentic_rag" if classification != "normal_rag" else "improved_rag"
         await admin_analytics.log_router_decision(request.query, pipeline, str(classification))
         
         # Step 3: Execute pipeline
-        if pipeline == "normal_rag":
-            result = await normal_rag.process_query(request.query, request_id)
-            pipeline_used = "normal_rag"
-        else:
-            result = await agentic_orchestrator.process_query(request.query, request_id)
+        # Use improved RAG by default for better accuracy
+        from services.improved_rag import improved_rag
+        
+        if pipeline == "improved_rag":
+            result = await improved_rag.process_query(
+                query=request.query,
+                request_id=request_id,
+                workspace_id=getattr(request, 'workspace_id', None),
+                source_filter=request.source_filter,
+                use_reranking=True
+            )
+            pipeline_used = "improved_rag"
+        elif pipeline == "agentic_rag":
+            result = await agentic_orchestrator.process_query(
+                query=request.query,
+                request_id=request_id,
+                ingestion_id=request.source_filter  # pass ingestion_id filter through
+            )
             pipeline_used = "agentic_rag"
+        else:
+            # Fallback to normal RAG
+            result = await normal_rag.process_query(request.query, request_id, request.source_filter)
+            pipeline_used = "normal_rag"
         
         # Step 4: Store in cache
         if request.use_cache:
@@ -698,6 +736,308 @@ async def get_analytics():
     """Get analytics data for charts and graphs."""
     data = await admin_analytics.get_analytics_data()
     return AnalyticsData(**data)
+
+
+# ============= Ingestion Endpoints =============
+
+@app.post("/ingest/url", response_model=dict)
+async def ingest_url(request: IngestURLRequest, background_tasks: BackgroundTasks):
+    """
+    Start ingestion of a URL (GitHub repo, webpage, Reddit, YouTube, RSS).
+    Returns immediately with ingestion_id. Poll /ingest/status/{id} for progress.
+    """
+    ingestion_id = f"ing_{uuid.uuid4().hex[:12]}"
+    
+    # Store initial status in Redis
+    await redis_client.set_json(f"ingestion:{ingestion_id}", {
+        "ingestion_id": ingestion_id,
+        "status": "running",
+        "source_url": request.url,
+        "source_type": "detecting",
+        "source_name": request.url,
+        "total_docs": 0,
+        "processed_docs": 0,
+        "entity_count": 0,
+        "created_at": datetime.utcnow().isoformat(),
+        "message": "Starting ingestion..."
+    })
+    
+    # Add ingestion_id to index
+    await redis_client.lpush("ingestion:index", ingestion_id)
+    
+    # Run ingestion in background
+    background_tasks.add_task(
+        ingestion_pipeline.ingest_url, request.url, ingestion_id, request.recursive
+    )
+    
+    return {"ingestion_id": ingestion_id, "message": "Ingestion started"}
+
+
+@app.post("/ingest/pdf", response_model=dict)
+async def ingest_pdf(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """Upload and ingest a PDF file."""
+    ingestion_id = f"ing_{uuid.uuid4().hex[:12]}"
+    file_bytes = await file.read()
+    
+    await redis_client.set_json(f"ingestion:{ingestion_id}", {
+        "ingestion_id": ingestion_id,
+        "status": "running",
+        "source_url": f"uploaded:{file.filename}",
+        "source_type": "pdf",
+        "source_name": file.filename,
+        "total_docs": 0,
+        "processed_docs": 0,
+        "entity_count": 0,
+        "created_at": datetime.utcnow().isoformat(),
+        "message": "Processing PDF..."
+    })
+    
+    await redis_client.lpush("ingestion:index", ingestion_id)
+    
+    background_tasks.add_task(
+        ingestion_pipeline.ingest_pdf, file_bytes, file.filename, ingestion_id
+    )
+    
+    return {"ingestion_id": ingestion_id, "message": "PDF ingestion started"}
+
+
+@app.get("/ingest/status/{ingestion_id}", response_model=IngestStatusResponse)
+async def get_ingestion_status(ingestion_id: str):
+    """Poll ingestion progress."""
+    data = await redis_client.get_json(f"ingestion:{ingestion_id}")
+    if not data:
+        raise HTTPException(status_code=404, detail="Ingestion not found")
+    return IngestStatusResponse(**data)
+
+
+@app.get("/ingest/list", response_model=IngestionListResponse)
+async def list_ingestions():
+    """List all ingested sources."""
+    ids = await redis_client.lrange("ingestion:index", 0, 49)  # last 50
+    ingestions = []
+    for ing_id in ids:
+        data = await redis_client.get_json(f"ingestion:{ing_id}")
+        if data:
+            ingestions.append(IngestStatusResponse(**data))
+    return IngestionListResponse(ingestions=ingestions, total=len(ingestions))
+
+
+@app.delete("/ingest/{ingestion_id}")
+async def delete_ingestion(ingestion_id: str):
+    """Delete an ingested source from ChromaDB, Neo4j, and Redis."""
+    await ingestion_pipeline.delete_ingestion(ingestion_id)
+    return {"message": "Ingestion deleted"}
+
+
+@app.post("/digest", response_model=DigestResponse)
+async def generate_digest(request: DigestRequest):
+    """Generate a digest of an ingested source."""
+    result = await digest_service.generate_digest(request.ingestion_id, request.days_back)
+    return result
+
+
+# ============= Workspace Endpoints =============
+
+@app.post("/workspaces", response_model=dict)
+async def create_workspace(request: WorkspaceCreate):
+    """Create a new workspace to organize ingestions."""
+    from services.workspace_service import workspace_service
+    workspace = await workspace_service.create_workspace(request.name, request.description)
+    return workspace
+
+
+@app.get("/workspaces", response_model=WorkspaceList)
+async def list_workspaces():
+    """List all workspaces."""
+    from services.workspace_service import workspace_service
+    workspaces = await workspace_service.list_workspaces()
+    return WorkspaceList(workspaces=workspaces, total=len(workspaces))
+
+
+@app.get("/workspaces/{workspace_id}", response_model=WorkspaceDetail)
+async def get_workspace(workspace_id: str):
+    """Get workspace details with ingestions."""
+    from services.workspace_service import workspace_service
+    workspace = await workspace_service.get_workspace(workspace_id)
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    
+    ingestions = await workspace_service.get_workspace_ingestions(workspace_id)
+    
+    return WorkspaceDetail(
+        workspace_id=workspace['workspace_id'],
+        name=workspace['name'],
+        description=workspace.get('description'),
+        ingestion_count=len(ingestions),
+        created_at=workspace['created_at'],
+        updated_at=workspace['updated_at'],
+        ingestions=ingestions
+    )
+
+
+@app.put("/workspaces/{workspace_id}", response_model=dict)
+async def update_workspace(workspace_id: str, request: WorkspaceUpdate):
+    """Update workspace name or description."""
+    from services.workspace_service import workspace_service
+    workspace = await workspace_service.update_workspace(
+        workspace_id, 
+        request.name, 
+        request.description
+    )
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return workspace
+
+
+@app.delete("/workspaces/{workspace_id}")
+async def delete_workspace(workspace_id: str):
+    """Delete a workspace."""
+    from services.workspace_service import workspace_service
+    success = await workspace_service.delete_workspace(workspace_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"message": "Workspace deleted"}
+
+
+@app.post("/workspaces/{workspace_id}/ingestions")
+async def add_ingestion_to_workspace(workspace_id: str, request: AddIngestionToWorkspace):
+    """Add an ingestion to a workspace."""
+    from services.workspace_service import workspace_service
+    success = await workspace_service.add_ingestion_to_workspace(
+        workspace_id, 
+        request.ingestion_id
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Workspace or ingestion not found")
+    return {"message": "Ingestion added to workspace"}
+
+
+@app.delete("/workspaces/{workspace_id}/ingestions/{ingestion_id}")
+async def remove_ingestion_from_workspace(workspace_id: str, ingestion_id: str):
+    """Remove an ingestion from a workspace."""
+    from services.workspace_service import workspace_service
+    success = await workspace_service.remove_ingestion_from_workspace(
+        workspace_id, 
+        ingestion_id
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"message": "Ingestion removed from workspace"}
+
+
+@app.get("/workspaces/{workspace_id}/stats", response_model=WorkspaceStats)
+async def get_workspace_stats(workspace_id: str):
+    """Get workspace statistics."""
+    from services.workspace_service import workspace_service
+    stats = await workspace_service.get_workspace_stats(workspace_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return WorkspaceStats(**stats)
+
+
+@app.get("/knowledge-graph")
+async def get_knowledge_graph(ingestion_id: str = None):
+    """
+    Get knowledge graph data for visualization.
+    Returns nodes (entities) and edges (relationships) from Neo4j.
+    
+    Args:
+        ingestion_id: Optional filter by specific ingestion
+    
+    Returns:
+        {
+            "nodes": [{"id": "entity_name", "label": "entity_type", "properties": {...}}],
+            "edges": [{"source": "from", "target": "to", "label": "relationship_type"}],
+            "stats": {"total_nodes": N, "total_edges": M}
+        }
+    """
+    try:
+        # Build Cypher query
+        if ingestion_id:
+            # Filter by ingestion_id if provided
+            cypher = """
+            MATCH (n)
+            WHERE n.ingestion_id = $ingestion_id
+            OPTIONAL MATCH (n)-[r]->(m)
+            WHERE m.ingestion_id = $ingestion_id
+            RETURN n, r, m
+            LIMIT 500
+            """
+            params = {"ingestion_id": ingestion_id}
+        else:
+            # Get all nodes and relationships
+            cypher = """
+            MATCH (n)
+            OPTIONAL MATCH (n)-[r]->(m)
+            RETURN n, r, m
+            LIMIT 500
+            """
+            params = {}
+        
+        # Execute query
+        results = await neo4j_client.execute_query(cypher, params)
+        
+        # Process results into nodes and edges
+        nodes_dict = {}
+        edges = []
+        
+        for record in results:
+            # Process source node
+            if record.get('n'):
+                node = record['n']
+                node_id = node.get('name') or str(node.id)
+                if node_id not in nodes_dict:
+                    nodes_dict[node_id] = {
+                        "id": node_id,
+                        "label": node.get('entity_type', 'unknown'),
+                        "properties": dict(node)
+                    }
+            
+            # Process relationship and target node
+            if record.get('r') and record.get('m'):
+                rel = record['r']
+                target = record['m']
+                target_id = target.get('name') or str(target.id)
+                
+                # Add target node
+                if target_id not in nodes_dict:
+                    nodes_dict[target_id] = {
+                        "id": target_id,
+                        "label": target.get('entity_type', 'unknown'),
+                        "properties": dict(target)
+                    }
+                
+                # Add edge
+                edges.append({
+                    "source": node_id,
+                    "target": target_id,
+                    "label": rel.type,
+                    "properties": dict(rel)
+                })
+        
+        nodes = list(nodes_dict.values())
+        
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "stats": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "filtered_by": ingestion_id if ingestion_id else "all"
+            }
+        }
+    
+    except Exception as e:
+        # If Neo4j is not available or query fails, return empty graph
+        return {
+            "nodes": [],
+            "edges": [],
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "error": str(e)
+            }
+        }
 
 
 @app.get("/")
