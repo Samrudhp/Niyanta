@@ -14,6 +14,7 @@ from models.ingestion_schemas import (
     GraphEntity, GraphRelationship
 )
 from config.settings import settings
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class GitHubIngester:
@@ -111,7 +112,14 @@ class GitHubIngester:
                         "source_id": "README.md",
                         "repo": f"{owner}/{repo}",
                         "title": "README",
-                        "created_at": datetime.utcnow().isoformat()
+                        "created_at": datetime.utcnow().isoformat(),
+                        "intent_tags": "explanation|reference",
+                        "source_category": "documentation",
+                        "content_quality": min(1.0, len(content.split()) / 300),
+                        "temporal_bucket": "unknown",
+                        "entities_mentioned": extract_key_terms(content, {
+                            "source_id": "README.md"
+                        })
                     }
                 )
         except Exception as e:
@@ -168,19 +176,46 @@ class GitHubIngester:
                                     f"\n**{comment['user']['login']}:** {comment['body'][:500]}"
                                 )
                     
+                    labels_str = ', '.join([label['name'] for label in issue.get('labels', [])])
+                    labels_lower = labels_str.lower()
+                    body_lower = (issue.get('body') or '').lower()
+                    state = issue.get('state', 'open')
+
+                    if "bug" in labels_lower or "error" in body_lower or "exception" in body_lower:
+                        intent = "problem"
+                    elif "enhancement" in labels_lower or "feature" in labels_lower:
+                        intent = "feature_request"
+                    elif "question" in labels_lower or issue.get('title', '').endswith("?"):
+                        intent = "question"
+                    else:
+                        intent = "discussion"
+
+                    if state == "closed":
+                        intent = intent + "|fix"
+
+                    issue_meta = {
+                        "source_type": "github_issue",
+                        "source_url": issue['html_url'],
+                        "source_id": f"issue#{issue['number']}",
+                        "author": issue['user']['login'],
+                        "created_at": issue['created_at'],
+                        "repo": f"{owner}/{repo}",
+                        "title": issue['title'],
+                        "state": state,
+                        "labels": labels_str,
+                        "intent_tags": intent,
+                        "source_category": "discussion",
+                        "content_quality": min(1.0, len("\n".join(content_parts).split()) / 200),
+                        "temporal_bucket": compute_temporal_bucket(issue['created_at']),
+                        "entities_mentioned": extract_key_terms(
+                            "\n".join(content_parts),
+                            {"source_id": f"issue#{issue['number']}", "author": issue['user']['login'], "labels": labels_str}
+                        )
+                    }
+
                     documents.append(IngestionDocument(
                         content="\n".join(content_parts),
-                        metadata={
-                            "source_type": "github_issue",
-                            "source_url": issue['html_url'],
-                            "source_id": f"issue#{issue['number']}",
-                            "author": issue['user']['login'],
-                            "created_at": issue['created_at'],
-                            "repo": f"{owner}/{repo}",
-                            "title": issue['title'],
-                            "state": issue['state'],
-                            "labels": ', '.join([label['name'] for label in issue.get('labels', [])])
-                        }
+                        metadata=issue_meta
                     ))
                     
                     # Rate limiting
@@ -242,8 +277,21 @@ class GitHubIngester:
                     if pr.get('body'):
                         content_parts.append(f"\n## Description\n{pr['body']}")
                     
+                    body_lower = (pr.get('body') or '').lower()
+                    decision_words = ["because", "reason", "why", "decided", "instead",
+                                      "approach", "chose", "trade-off", "alternative"]
+                    if any(w in body_lower for w in decision_words):
+                        pr_intent = "decision"
+                    elif pr.get('merged_at') is not None:
+                        pr_intent = "fix|change"
+                    else:
+                        pr_intent = "proposal"
+
+                    pr_labels_str = ', '.join([label['name'] for label in pr.get('labels', [])])
+                    pr_content = "\n".join(content_parts)
+
                     documents.append(IngestionDocument(
-                        content="\n".join(content_parts),
+                        content=pr_content,
                         metadata={
                             "source_type": "github_pr",
                             "source_url": pr['html_url'],
@@ -253,7 +301,15 @@ class GitHubIngester:
                             "repo": f"{owner}/{repo}",
                             "title": pr['title'],
                             "state": pr['state'],
-                            "merged": pr.get('merged_at') is not None
+                            "merged": pr.get('merged_at') is not None,
+                            "intent_tags": pr_intent,
+                            "source_category": "discussion",
+                            "content_quality": min(1.0, len(pr_content.split()) / 300),
+                            "temporal_bucket": compute_temporal_bucket(pr['created_at']),
+                            "entities_mentioned": extract_key_terms(
+                                pr_content,
+                                {"source_id": f"pr#{pr['number']}", "author": pr['user']['login'], "labels": pr_labels_str}
+                            )
                         }
                     ))
                     
@@ -287,6 +343,18 @@ class GitHubIngester:
                     
                     content = f"Commit {sha_short}: {message}\nAuthor: {author}\nDate: {date}"
                     
+                    message_lower = message.lower()
+                    if message_lower.startswith("fix") or message_lower.startswith("bug"):
+                        commit_intent = "fix"
+                    elif message_lower.startswith("feat") or message_lower.startswith("add"):
+                        commit_intent = "change"
+                    elif message_lower.startswith("docs") or message_lower.startswith("doc"):
+                        commit_intent = "explanation"
+                    elif message_lower.startswith("refactor") or message_lower.startswith("chore"):
+                        commit_intent = "change"
+                    else:
+                        commit_intent = "change"
+
                     documents.append(IngestionDocument(
                         content=content,
                         metadata={
@@ -296,7 +364,15 @@ class GitHubIngester:
                             "author": author,
                             "created_at": date,
                             "repo": f"{owner}/{repo}",
-                            "title": message.split('\n')[0][:100]
+                            "title": message.split('\n')[0][:100],
+                            "intent_tags": commit_intent,
+                            "source_category": "code",
+                            "content_quality": min(1.0, len(content.split()) / 50),
+                            "temporal_bucket": compute_temporal_bucket(date),
+                            "entities_mentioned": extract_key_terms(
+                                content,
+                                {"source_id": f"commit#{sha_short}", "author": author}
+                            )
                         }
                     ))
         
@@ -327,7 +403,14 @@ class GitHubIngester:
                             "source_id": filename,
                             "repo": f"{owner}/{repo}",
                             "title": filename,
-                            "created_at": datetime.utcnow().isoformat()
+                            "created_at": datetime.utcnow().isoformat(),
+                            "intent_tags": "changelog|reference",
+                            "source_category": "documentation",
+                            "content_quality": 0.9,
+                            "temporal_bucket": "unknown",
+                            "entities_mentioned": extract_key_terms(
+                                content, {"source_id": filename}
+                            )
                         }
                     )
             except Exception:

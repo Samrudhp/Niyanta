@@ -25,7 +25,7 @@ from config.settings import settings
 
 class IngestionPipeline:
     """Main coordinator for ingestion operations."""
-    
+
     async def ingest_url(self, url: str, ingestion_id: str, recursive: bool = False):
         """
         Background task to ingest a URL.

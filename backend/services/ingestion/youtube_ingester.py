@@ -11,6 +11,7 @@ from models.ingestion_schemas import (
     IngestionDocument, IngestionResult, GraphData,
     GraphEntity, GraphRelationship
 )
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class YouTubeIngester:
@@ -118,18 +119,45 @@ class YouTubeIngester:
                 # Create document for this chunk
                 chunk_text = ' '.join(current_chunk)
                 chunk_end_time = entry['start'] + entry.get('duration', 0)
-                
+
+                video_title_lower = metadata.get('title', '').lower()
+                tutorial_words_list = ["tutorial", "how to", "learn", "guide", "course", "step by step", "beginner"]
+                opinion_words_list = ["review", "opinion", "vs", "compare", "better", "worse", "should you"]
+                news_words_list = ["news", "update", "release", "announced", "new in"]
+
+                if any(w in video_title_lower for w in tutorial_words_list):
+                    yt_intent = "explanation|reference"
+                    yt_quality = 0.85
+                elif any(w in video_title_lower for w in opinion_words_list):
+                    yt_intent = "opinion"
+                    yt_quality = 0.75
+                elif any(w in video_title_lower for w in news_words_list):
+                    yt_intent = "changelog|feed"
+                    yt_quality = 0.7
+                else:
+                    yt_intent = "explanation"
+                    yt_quality = 0.7
+
+                chunk_meta = {
+                    "source_type": "youtube_transcript",
+                    "source_url": url,
+                    "video_title": metadata.get('title', ''),
+                    "channel": metadata.get('author_name', ''),
+                    "chunk_start_seconds": chunk_start_time,
+                    "chunk_end_seconds": chunk_end_time,
+                    "video_id": video_id,
+                    "intent_tags": yt_intent,
+                    "source_category": "media",
+                    "content_quality": yt_quality,
+                    "temporal_bucket": "unknown",
+                    "entities_mentioned": extract_key_terms(chunk_text, chunk_meta if False else {})
+                }
+                # Re-compute entities_mentioned with the actual meta (avoid forward ref)
+                chunk_meta["entities_mentioned"] = extract_key_terms(chunk_text, chunk_meta)
+
                 documents.append(IngestionDocument(
                     content=chunk_text,
-                    metadata={
-                        "source_type": "youtube_transcript",
-                        "source_url": url,
-                        "video_title": metadata.get('title', ''),
-                        "channel": metadata.get('author_name', ''),
-                        "chunk_start_seconds": chunk_start_time,
-                        "chunk_end_seconds": chunk_end_time,
-                        "video_id": video_id
-                    }
+                    metadata=chunk_meta
                 ))
                 
                 # Reset for next chunk
@@ -140,17 +168,44 @@ class YouTubeIngester:
         # Add remaining chunk
         if current_chunk:
             chunk_text = ' '.join(current_chunk)
+
+            video_title_lower = metadata.get('title', '').lower()
+            tutorial_words_list = ["tutorial", "how to", "learn", "guide", "course", "step by step", "beginner"]
+            opinion_words_list = ["review", "opinion", "vs", "compare", "better", "worse", "should you"]
+            news_words_list = ["news", "update", "release", "announced", "new in"]
+
+            if any(w in video_title_lower for w in tutorial_words_list):
+                yt_intent = "explanation|reference"
+                yt_quality = 0.85
+            elif any(w in video_title_lower for w in opinion_words_list):
+                yt_intent = "opinion"
+                yt_quality = 0.75
+            elif any(w in video_title_lower for w in news_words_list):
+                yt_intent = "changelog|feed"
+                yt_quality = 0.7
+            else:
+                yt_intent = "explanation"
+                yt_quality = 0.7
+
+            last_meta = {
+                "source_type": "youtube_transcript",
+                "source_url": url,
+                "video_title": metadata.get('title', ''),
+                "channel": metadata.get('author_name', ''),
+                "chunk_start_seconds": chunk_start_time,
+                "chunk_end_seconds": transcript[-1]['start'] + transcript[-1].get('duration', 0),
+                "video_id": video_id,
+                "intent_tags": yt_intent,
+                "source_category": "media",
+                "content_quality": yt_quality,
+                "temporal_bucket": "unknown",
+                "entities_mentioned": ""
+            }
+            last_meta["entities_mentioned"] = extract_key_terms(chunk_text, last_meta)
+
             documents.append(IngestionDocument(
                 content=chunk_text,
-                metadata={
-                    "source_type": "youtube_transcript",
-                    "source_url": url,
-                    "video_title": metadata.get('title', ''),
-                    "channel": metadata.get('author_name', ''),
-                    "chunk_start_seconds": chunk_start_time,
-                    "chunk_end_seconds": transcript[-1]['start'] + transcript[-1].get('duration', 0),
-                    "video_id": video_id
-                }
+                metadata=last_meta
             ))
         
         return documents

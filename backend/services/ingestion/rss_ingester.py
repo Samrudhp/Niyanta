@@ -10,6 +10,7 @@ from models.ingestion_schemas import (
     IngestionDocument, IngestionResult, GraphData,
     GraphEntity, GraphRelationship
 )
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class RSSIngester:
@@ -56,20 +57,41 @@ class RSSIngester:
             if content:
                 content_parts.append(content)
             
-            # Extract tags
             tags = [tag.get('term', '') for tag in entry.get('tags', [])]
-            
+            tags_str = ', '.join(tags) if tags else ''
+            tags_lower = tags_str.lower()
+
+            intent_parts = ["feed"]
+            if any(w in tags_lower for w in ["tutorial", "guide", "how-to"]):
+                intent_parts.append("explanation")
+            if any(w in tags_lower for w in ["release", "changelog", "update", "version"]):
+                intent_parts.append("changelog")
+            if any(w in tags_lower for w in ["opinion", "review", "vs"]):
+                intent_parts.append("opinion")
+
+            rss_content = '\n\n'.join(content_parts)
+            published_at_str = published.isoformat() if published else ''
+
+            rss_meta = {
+                "source_type": "rss_entry",
+                "source_url": entry.get('link', url),
+                "feed_title": feed_title,
+                "published_at": published_at_str,
+                "author": entry.get('author', ''),
+                "tags": tags_str,
+                "title": entry.get('title', 'Untitled'),
+                "intent_tags": "|".join(intent_parts),
+                "source_category": "feed",
+                "content_quality": 0.6,
+                "temporal_bucket": compute_temporal_bucket(published_at_str),
+                "entities_mentioned": extract_key_terms(
+                    rss_content, {"author": entry.get('author', ''), "tags": tags_str}
+                )
+            }
+
             documents.append(IngestionDocument(
-                content='\n\n'.join(content_parts),
-                metadata={
-                    "source_type": "rss_entry",
-                    "source_url": entry.get('link', url),
-                    "feed_title": feed_title,
-                    "published_at": published.isoformat() if published else '',
-                    "author": entry.get('author', ''),
-                    "tags": ', '.join(tags) if tags else '',
-                    "title": entry.get('title', 'Untitled')
-                }
+                content=rss_content,
+                metadata=rss_meta
             ))
         
         # Build graph data

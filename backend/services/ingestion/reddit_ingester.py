@@ -3,12 +3,14 @@ Reddit thread ingester using public JSON API.
 No OAuth required - just append .json to any Reddit URL.
 """
 from typing import List, Dict
+from datetime import datetime
 import httpx
 
 from models.ingestion_schemas import (
     IngestionDocument, IngestionResult, GraphData,
     GraphEntity, GraphRelationship
 )
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class RedditIngester:
@@ -89,18 +91,31 @@ class RedditIngester:
         
         content = f"# {title}\n\n**Author:** u/{author}\n**Score:** {score}\n**Subreddit:** r/{subreddit}\n\n{selftext}"
         
-        return IngestionDocument(
-            content=content,
-            metadata={
-                "source_type": "reddit_post",
-                "source_url": permalink,
-                "author": author,
-                "score": score,
-                "subreddit": subreddit,
-                "created_at": str(created_utc),
-                "title": title
-            }
-        )
+        intent = "question" if title.endswith("?") or title.lower().startswith("how") else "discussion"
+
+        created_at_str = ""
+        if created_utc:
+            try:
+                created_at_str = datetime.utcfromtimestamp(float(created_utc)).isoformat()
+            except Exception:
+                created_at_str = ""
+
+        meta = {
+            "source_type": "reddit_post",
+            "source_url": permalink,
+            "author": author,
+            "score": score,
+            "subreddit": subreddit,
+            "created_at": str(created_utc),
+            "title": title,
+            "intent_tags": intent,
+            "source_category": "community",
+            "content_quality": min(1.0, score / 1000) if score > 0 else 0.3,
+            "temporal_bucket": compute_temporal_bucket(created_at_str),
+            "entities_mentioned": extract_key_terms(content, {"author": author, "title": title})
+        }
+
+        return IngestionDocument(content=content, metadata=meta)
     
     def _extract_comments(self, comments_data: List, post_data: Dict) -> List[IngestionDocument]:
         """Extract top comments as documents."""
@@ -114,16 +129,32 @@ class RedditIngester:
         for comment in comments[:50]:
             if comment.get('body') and comment['body'] not in ['[deleted]', '[removed]']:
                 content = f"**Comment by u/{comment.get('author', 'unknown')}** (Score: {comment.get('score', 0)})\n\n{comment['body']}"
-                
+                score = comment.get('score', 0)
+
+                created_utc = comment.get('created_utc', 0)
+                created_at_str = ""
+                if created_utc:
+                    try:
+                        created_at_str = datetime.utcfromtimestamp(float(created_utc)).isoformat()
+                    except Exception:
+                        created_at_str = ""
+
                 documents.append(IngestionDocument(
                     content=content,
                     metadata={
                         "source_type": "reddit_comment",
                         "source_url": f"https://www.reddit.com{post_data.get('permalink', '')}",
                         "author": comment.get('author', 'unknown'),
-                        "score": comment.get('score', 0),
+                        "score": score,
                         "subreddit": post_data.get('subreddit', ''),
-                        "created_at": str(comment.get('created_utc', 0))
+                        "created_at": str(created_utc),
+                        "intent_tags": "opinion",
+                        "source_category": "community",
+                        "content_quality": min(1.0, score / 500) if score > 0 else 0.2,
+                        "temporal_bucket": compute_temporal_bucket(created_at_str),
+                        "entities_mentioned": extract_key_terms(
+                            content, {"author": comment.get('author', 'unknown')}
+                        )
                     }
                 ))
         

@@ -9,6 +9,7 @@ from models.ingestion_schemas import (
     IngestionDocument, IngestionResult, GraphData,
     GraphEntity, GraphRelationship
 )
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class PDFIngester:
@@ -47,32 +48,58 @@ class PDFIngester:
                 # Split into sub-chunks
                 chunks = self._split_text(text, chunk_size=500)
                 for i, chunk in enumerate(chunks):
-                    documents.append(IngestionDocument(
-                        content=chunk,
-                        metadata={
-                            "source_type": "pdf",
-                            "source_url": f"uploaded:{filename}",
-                            "page_number": page_num + 1,
-                            "sub_chunk": i + 1,
-                            "total_pages": total_pages,
-                            "pdf_title": pdf_title,
-                            "pdf_author": pdf_author,
-                            "filename": filename
-                        }
-                    ))
-            else:
-                documents.append(IngestionDocument(
-                    content=text,
-                    metadata={
+                    page_number = page_num + 1
+                    if page_number <= 2:
+                        pdf_intent = "explanation"
+                    elif page_number >= total_pages - 1:
+                        pdf_intent = "reference"
+                    else:
+                        pdf_intent = "reference|explanation"
+
+                    pdf_meta = {
                         "source_type": "pdf",
                         "source_url": f"uploaded:{filename}",
-                        "page_number": page_num + 1,
+                        "page_number": page_number,
+                        "sub_chunk": i + 1,
                         "total_pages": total_pages,
                         "pdf_title": pdf_title,
                         "pdf_author": pdf_author,
-                        "filename": filename
+                        "filename": filename,
+                        "intent_tags": pdf_intent,
+                        "source_category": "documentation",
+                        "content_quality": min(1.0, len(chunk.split()) / 300),
+                        "temporal_bucket": "unknown",
+                        "entities_mentioned": extract_key_terms(
+                            chunk, {"author": pdf_author}
+                        )
                     }
-                ))
+                    documents.append(IngestionDocument(content=chunk, metadata=pdf_meta))
+            else:
+                page_number = page_num + 1
+                if page_number <= 2:
+                    pdf_intent = "explanation"
+                elif page_number >= total_pages - 1:
+                    pdf_intent = "reference"
+                else:
+                    pdf_intent = "reference|explanation"
+
+                pdf_meta = {
+                    "source_type": "pdf",
+                    "source_url": f"uploaded:{filename}",
+                    "page_number": page_number,
+                    "total_pages": total_pages,
+                    "pdf_title": pdf_title,
+                    "pdf_author": pdf_author,
+                    "filename": filename,
+                    "intent_tags": pdf_intent,
+                    "source_category": "documentation",
+                    "content_quality": min(1.0, len(text.split()) / 300),
+                    "temporal_bucket": "unknown",
+                    "entities_mentioned": extract_key_terms(
+                        text, {"author": pdf_author}
+                    )
+                }
+                documents.append(IngestionDocument(content=text, metadata=pdf_meta))
         
         pdf_document.close()
         
