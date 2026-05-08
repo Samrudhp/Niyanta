@@ -5,6 +5,7 @@ Supports single page scraping and recursive crawling for documentation sites.
 import asyncio
 from typing import List, Set
 from urllib.parse import urljoin, urlparse
+from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
@@ -12,6 +13,7 @@ from models.ingestion_schemas import (
     IngestionDocument, IngestionResult, GraphData,
     GraphEntity, GraphRelationship
 )
+from services.ingestion.tagging_utils import compute_temporal_bucket, extract_key_terms
 
 
 class WebIngester:
@@ -160,7 +162,14 @@ class WebIngester:
                     "title": title_text,
                     "domain": urlparse(url).netloc,
                     "description": description,
-                    "scraped_at": ""
+                    "scraped_at": datetime.utcnow().isoformat(),
+                    "intent_tags": self._detect_web_intent(url),
+                    "source_category": self._detect_web_category(url),
+                    "content_quality": min(1.0, len(content.split()) / 300),
+                    "temporal_bucket": "unknown",
+                    "entities_mentioned": extract_key_terms(
+                        content[:10000], {"source_url": url}
+                    )
                 }
             )
         
@@ -168,6 +177,27 @@ class WebIngester:
             print(f"Failed to extract text from {url}: {e}")
             return None
     
+    def _detect_web_intent(self, url: str) -> str:
+        """Detect intent tags from URL patterns."""
+        url_lower = url.lower()
+        if any(p in url_lower for p in ["/docs/", "/documentation/", "readthedocs", "/wiki/", "/guide/"]):
+            return "explanation|reference"
+        elif any(p in url_lower for p in ["/blog/", "/post/", "/article/", "/news/"]):
+            return "opinion|explanation"
+        elif any(p in url_lower for p in ["/api/", "/reference/", "/spec/"]):
+            return "reference"
+        elif any(p in url_lower for p in ["/faq/", "/troubleshoot/", "/error/"]):
+            return "problem|explanation"
+        else:
+            return "explanation"
+
+    def _detect_web_category(self, url: str) -> str:
+        """Detect source category from URL patterns."""
+        url_lower = url.lower()
+        if any(p in url_lower for p in ["/blog/", "/post/", "/article/", "/news/"]):
+            return "feed"
+        return "documentation"
+
     def _get_links(self, html: str, base_url: str) -> List[str]:
         """Extract all links from HTML."""
         try:

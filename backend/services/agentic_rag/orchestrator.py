@@ -33,7 +33,7 @@ class AgenticOrchestrator:
     def __init__(self):
         self.groq_client = AsyncGroq(api_key=settings.GROQ_API_KEY)
     
-    async def process_query(self, query: str, request_id: str) -> dict:
+    async def process_query(self, query: str, request_id: str, ingestion_id: str = None) -> dict:
         """
         Execute complete Agentic RAG pipeline.
         Returns answer with metadata.
@@ -44,7 +44,7 @@ class AgenticOrchestrator:
         plan = await langgraph_planner.create_plan(query, request_id)
         
         # Step 2: Execute plan steps via RabbitMQ
-        step_results = await self._execute_plan_steps(plan, query)
+        step_results = await self._execute_plan_steps(plan, query, ingestion_id)
         
         # Step 3: Generate answer from collected context
         answer = await self._generate_answer(query, step_results)
@@ -55,7 +55,7 @@ class AgenticOrchestrator:
         # Step 5: Optional replan (max 1)
         if evaluation.should_replan:
             # One additional step allowed
-            refined_results = await self._execute_replan_step(plan, query)
+            refined_results = await self._execute_replan_step(plan, query, ingestion_id)
             step_results.extend(refined_results)
             answer = await self._generate_answer(query, step_results)
         
@@ -77,7 +77,8 @@ class AgenticOrchestrator:
     async def _execute_plan_steps(
         self,
         plan: AgentPlan,
-        query: str
+        query: str,
+        ingestion_id: str = None
     ) -> list[StepResult]:
         """
         Execute plan by publishing steps to RabbitMQ.
@@ -87,14 +88,24 @@ class AgenticOrchestrator:
         
         # Step 1: Retrieval (always first)
         if plan.retrieval_needed:
+            # Use resolution_chain step type when mode is resolution_chain
+            step_type = (
+                "resolution_chain"
+                if plan.retrieval_mode.value == "resolution_chain"
+                else StepType.RETRIEVE
+            )
             retrieval_step = AgentStep(
                 request_id=plan.request_id,
                 step_id=f"{plan.request_id}_retrieve",
-                step_type=StepType.RETRIEVE,
+                step_type=step_type,
                 payload={
                     "query": query,
                     "retrieval_mode": plan.retrieval_mode.value,
-                    "entities": plan.entities
+                    "entities": plan.entities,
+                    "ingestion_id": ingestion_id,           # NEW
+                    "intent_tags": plan.intent_tags,        # NEW
+                    "temporal_buckets": plan.temporal_buckets,  # NEW
+                    "min_content_quality": 0.3              # NEW
                 }
             )
             
@@ -246,18 +257,22 @@ Provide a comprehensive answer:"""
     async def _execute_replan_step(
         self,
         plan: AgentPlan,
-        query: str
+        query: str,
+        ingestion_id: str = None
     ) -> list[StepResult]:
         """Execute one additional retrieval step after replan."""
-        # Simplified replan: one more retrieval with different strategy
         replan_step = AgentStep(
             request_id=plan.request_id,
             step_id=f"{plan.request_id}_replan",
             step_type=StepType.RETRIEVE,
             payload={
                 "query": query,
-                "retrieval_mode": "hybrid",  # Try different mode
-                "entities": plan.entities
+                "retrieval_mode": "hybrid_reranked",
+                "entities": plan.entities,
+                "ingestion_id": ingestion_id,
+                "intent_tags": plan.intent_tags,
+                "temporal_buckets": plan.temporal_buckets,
+                "min_content_quality": 0.3
             }
         )
         

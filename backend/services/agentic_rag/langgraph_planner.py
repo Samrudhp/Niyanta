@@ -34,6 +34,8 @@ class AgentState(TypedDict):
     steps_completed: int
     should_stop: bool
     replan_count: int
+    intent_tags: list[str]       # NEW
+    temporal_buckets: list[str]  # NEW
 
 
 # ============= LangGraph Planner =============
@@ -112,7 +114,9 @@ class LangGraphPlanner:
             "needs_graph_reasoning": False,
             "steps_completed": 0,
             "should_stop": False,
-            "replan_count": 0
+            "replan_count": 0,
+            "intent_tags": [],       # NEW
+            "temporal_buckets": []   # NEW
         }
         
         # Run graph
@@ -126,7 +130,9 @@ class LangGraphPlanner:
             retrieval_needed=final_state["retrieval_needed"],
             retrieval_mode=RetrievalMode(final_state["retrieval_mode"]),
             needs_graph_reasoning=final_state["needs_graph_reasoning"],
-            steps=self._extract_steps_from_state(final_state)
+            steps=self._extract_steps_from_state(final_state),
+            intent_tags=final_state.get("intent_tags") or None,
+            temporal_buckets=final_state.get("temporal_buckets") or None
         )
         
         return plan
@@ -242,23 +248,69 @@ Key phrases:"""
             return chunks[:5] if chunks else [query]
     
     async def _decide_retrieval(self, state: AgentState) -> dict:
-        """Decide if retrieval is needed and what mode."""
-        classification = state["classification"]
+        """Detect query intent and choose retrieval strategy."""
+        query_lower = state["original_query"].lower()
         entities = state["entities"]
-        
-        # Simple heuristic: complex queries with multiple entities need graph
-        needs_graph = classification == "complex" and len(entities) > 1
-        
-        retrieval_mode = (
-            RetrievalMode.GRAPH.value if needs_graph
-            else RetrievalMode.HYBRID.value if classification != "simple"
-            else RetrievalMode.VECTOR_ONLY.value
+
+        decision_keywords = ["why", "decided", "chose", "reason", "because",
+                              "approach", "alternative", "trade-off"]
+        fix_keywords = ["fixed", "resolved", "solved", "how was", "patch",
+                        "closed", "merged"]
+        temporal_keywords = ["recent", "latest", "last week", "this week",
+                              "changed", "new", "update", "today"]
+        explanation_keywords = ["what is", "explain", "how does", "understand",
+                                 "what are", "describe"]
+        problem_keywords = ["bug", "issue", "error", "broken", "fail",
+                             "problem", "wrong"]
+        opinion_keywords = ["think", "opinion", "recommend", "better",
+                             "prefer", "community", "people say"]
+
+        if any(k in query_lower for k in fix_keywords):
+            retrieval_mode = RetrievalMode.RESOLUTION_CHAIN.value
+            intent_tags = ["fix", "problem", "decision"]
+            temporal_buckets = []
+
+        elif any(k in query_lower for k in decision_keywords):
+            retrieval_mode = RetrievalMode.SOURCE_AWARE.value
+            intent_tags = ["decision", "discussion", "proposal"]
+            temporal_buckets = []
+
+        elif any(k in query_lower for k in temporal_keywords):
+            retrieval_mode = RetrievalMode.TEMPORAL.value
+            intent_tags = []
+            temporal_buckets = ["today", "this_week", "this_month"]
+
+        elif any(k in query_lower for k in problem_keywords):
+            retrieval_mode = RetrievalMode.SOURCE_AWARE.value
+            intent_tags = ["problem", "question", "fix"]
+            temporal_buckets = []
+
+        elif any(k in query_lower for k in explanation_keywords):
+            retrieval_mode = RetrievalMode.SOURCE_AWARE.value
+            intent_tags = ["explanation", "reference"]
+            temporal_buckets = []
+
+        elif any(k in query_lower for k in opinion_keywords):
+            retrieval_mode = RetrievalMode.SOURCE_AWARE.value
+            intent_tags = ["opinion", "discussion", "community"]
+            temporal_buckets = []
+
+        else:
+            retrieval_mode = RetrievalMode.HYBRID_RERANKED.value
+            intent_tags = []
+            temporal_buckets = []
+
+        needs_graph = (
+            retrieval_mode in [RetrievalMode.RESOLUTION_CHAIN.value, RetrievalMode.SOURCE_AWARE.value]
+            and len(entities) > 1
         )
-        
+
         return {
             "retrieval_needed": True,
             "retrieval_mode": retrieval_mode,
-            "needs_graph_reasoning": needs_graph
+            "needs_graph_reasoning": needs_graph,
+            "intent_tags": intent_tags,
+            "temporal_buckets": temporal_buckets
         }
     
     async def _plan_next_step(self, state: AgentState) -> dict:
@@ -312,15 +364,16 @@ Key phrases:"""
     def _extract_steps_from_state(self, state: AgentState) -> list[str]:
         """Extract high-level step descriptions from final state."""
         steps = []
-        
+
         if state["retrieval_needed"]:
-            steps.append(f"Retrieve documents using {state['retrieval_mode']}")
-        
+            intent_info = f" intent={state.get('intent_tags')}" if state.get("intent_tags") else ""
+            steps.append(f"Retrieve ({state['retrieval_mode']}){intent_info}")
+
         if state["needs_graph_reasoning"]:
-            steps.append(f"Perform graph reasoning on entities: {', '.join(state['entities'])}")
-        
-        steps.append("Generate final answer")
-        
+            steps.append(f"Graph reasoning on: {state['entities']}")
+
+        steps.append("Synthesize answer")
+
         return steps
 
 
