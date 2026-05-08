@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
+import SourceSelector from '../components/SourceSelector';
 import '../App.css';
 
 function UserDashboard() {
@@ -14,6 +15,7 @@ function UserDashboard() {
   const [error, setError] = useState(null);
   const [history, setHistory] = useState([]);
   const [selectedHistory, setSelectedHistory] = useState(null);
+  const [sourceFilter, setSourceFilter] = useState(null);
 
   // Load history from localStorage per user
   useEffect(() => {
@@ -60,6 +62,7 @@ function UserDashboard() {
           force_agentic: false,
           user_id: user?.id,
           username: user?.username,
+          source_filter: sourceFilter,
         }),
       });
 
@@ -164,6 +167,12 @@ function UserDashboard() {
         {/* Footer */}
         <div className="p-4 border-t border-gray-800 space-y-3">
           <button
+            onClick={() => navigate('/ingest')}
+            className="w-full py-2 px-3 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            📥 Manage Sources
+          </button>
+          <button
             onClick={() => {
               logout();
               navigate('/');
@@ -193,6 +202,10 @@ function UserDashboard() {
           {/* Query Form */}
           <div className="max-w-4xl">
             <form onSubmit={handleSubmit} className="mb-8">
+              <SourceSelector
+                onSourceChange={setSourceFilter}
+                selectedSource={sourceFilter}
+              />
               <div className="mb-4">
                 <label className="block text-sm text-gray-500 mb-3 uppercase tracking-wider">
                   Your Query
@@ -289,8 +302,20 @@ function UserDashboard() {
                   <div>
                     <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-4">Sources</h3>
                     <div className="space-y-3">
-                      {displayResponse.sources.slice(0, 3).map((source, idx) => (
+                      {displayResponse.sources.slice(0, 5).map((source, idx) => (
                         <div key={idx} className="bg-gray-950 border border-gray-800 rounded p-4">
+                          {source.source_url && source.source_id && (
+                            <div className="mb-2">
+                              <a
+                                href={source.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-400 hover:text-blue-300 font-medium"
+                              >
+                                {source.source_id}
+                              </a>
+                            </div>
+                          )}
                           <p className="text-sm text-gray-400 mb-2 line-clamp-2">
                             {source.content}
                           </p>
@@ -304,6 +329,11 @@ function UserDashboard() {
                               {source.metadata.type && (
                                 <span className="px-2.5 py-1 bg-gray-900 text-gray-500 text-xs rounded border border-gray-800">
                                   {source.metadata.type}
+                                </span>
+                              )}
+                              {source.source_type && (
+                                <span className="px-2.5 py-1 bg-gray-900 text-gray-500 text-xs rounded border border-gray-800">
+                                  {source.source_type}
                                 </span>
                               )}
                             </div>

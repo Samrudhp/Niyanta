@@ -6,6 +6,7 @@ import CacheTab from '../components/admin/CacheTab';
 import QueueTab from '../components/admin/QueueTab';
 import AnalyticsTab from '../components/admin/AnalyticsTab';
 import TasksTab from '../components/admin/TasksTab';
+import KnowledgeGraphTab from '../components/admin/KnowledgeGraphTab';
 
 function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -31,12 +32,13 @@ function AdminDashboard() {
     { id: 'queue', name: 'Queue' },
     { id: 'tasks', name: 'Tasks' },
     { id: 'analytics', name: 'Analytics' },
+    { id: 'graph', name: '🕸 Knowledge Graph' },
   ];
 
   const renderTab = () => {
     switch (activeTab) {
       case 'overview':
-        return <OverviewTab />;
+        return <OverviewTab onViewGraph={() => setActiveTab('graph')} />;
       case 'documents':
         return <DocumentsTab />;
       case 'cache':
@@ -47,8 +49,10 @@ function AdminDashboard() {
         return <TasksTab />;
       case 'analytics':
         return <AnalyticsTab />;
+      case 'graph':
+        return <KnowledgeGraphTab />;
       default:
-        return <OverviewTab />;
+        return <OverviewTab onViewGraph={() => setActiveTab('graph')} />;
     }
   };
 

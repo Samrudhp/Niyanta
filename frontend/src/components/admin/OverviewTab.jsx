@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-function OverviewTab() {
+function OverviewTab({ onViewGraph }) {
   const [stats, setStats] = useState(null);
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -96,8 +96,19 @@ function OverviewTab() {
           </div>
           
           <div className="bg-gray-950 border border-gray-800 rounded-lg p-6">
-            <div className="text-sm text-gray-400 mb-1">Neo4j Nodes</div>
+            <div className="text-sm text-gray-400 mb-1">Knowledge Graph</div>
             <div className="text-3xl font-bold">{stats?.neo4j_nodes || 0}</div>
+            <div className="text-xs text-gray-600 mt-1">
+              {stats?.neo4j_nodes || 0} nodes · {stats?.neo4j_relationships || 0} relationships
+            </div>
+            {onViewGraph && (
+              <button
+                onClick={onViewGraph}
+                className="mt-2 text-xs text-blue-500 hover:text-blue-400 transition-colors"
+              >
+                View Graph →
+              </button>
+            )}
           </div>
         </div>
       </div>

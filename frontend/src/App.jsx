@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage';
 import UserDashboard from './pages/UserDashboard';
 import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
+import IngestionPage from './pages/IngestionPage';
 import './App.css';
 
 function App() {
@@ -20,6 +21,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <UserDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ingest"
+            element={
+              <ProtectedRoute>
+                <IngestionPage />
               </ProtectedRoute>
             }
           />
