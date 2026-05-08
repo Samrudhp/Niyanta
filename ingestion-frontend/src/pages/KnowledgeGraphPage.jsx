@@ -240,7 +240,7 @@ export default function KnowledgeGraphPage() {
 
         {/* Source selector */}
         <div>
-          <p className="text-xs font-medium text-claude-text-secondary uppercase tracking-wider mb-2">Data Source</p>
+          <p className="text-xs font-mono font-medium text-claude-text-tertiary uppercase tracking-widest mb-2">Data Source</p>
           <select
             value={selectedSource}
             onChange={e => setSelectedSource(e.target.value)}
@@ -394,7 +394,12 @@ export default function KnowledgeGraphPage() {
       </div>
 
       {/* CENTER: Graph canvas */}
-      <div className="flex-1 relative overflow-hidden bg-claude-bg">
+      <div className="flex-1 relative overflow-hidden"
+        style={{
+          background: '#F7F6F3',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='20' height='20' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='1' cy='1' r='1' fill='%23D4D0C8' fill-opacity='0.6'/%3E%3C/svg%3E")`,
+          backgroundSize: '20px 20px',
+        }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-claude-bg/90 z-20">
             <div className="flex items-center gap-3 text-claude-text-secondary">
@@ -444,7 +449,7 @@ export default function KnowledgeGraphPage() {
       {selectedNode && (
         <div className="w-56 flex-shrink-0 bg-claude-surface border-l border-claude-border p-4 overflow-y-auto">
           <div className="flex justify-between items-start mb-3">
-            <h3 className="font-semibold text-sm text-claude-text leading-tight break-all">
+            <h3 className="font-display font-bold text-sm text-claude-text leading-tight break-all">
               {selectedNode.label}
             </h3>
             <button
@@ -464,8 +469,8 @@ export default function KnowledgeGraphPage() {
             </div>
 
             <div>
-              <p className="text-claude-text-secondary mb-0.5">Connections</p>
-              <span className="text-claude-text font-medium">{selectedNode.connection_count}</span>
+              <p className="text-claude-text-secondary mb-0.5 font-mono text-xs uppercase tracking-wider">Connections</p>
+              <span className="text-claude-text font-mono font-medium">{selectedNode.connection_count}</span>
             </div>
 
             {selectedNode.source_url && (

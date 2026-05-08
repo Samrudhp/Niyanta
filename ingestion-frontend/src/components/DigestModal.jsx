@@ -1,55 +1,37 @@
 import { useState, useEffect } from 'react'
 
-function DigestModal({ ingestionId, onClose }) {
+export default function DigestModal({ ingestionId, onClose }) {
   const [digest, setDigest] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [daysBack, setDaysBack] = useState(7)
 
-  useEffect(() => {
-    generateDigest()
-  }, [])
+  useEffect(() => { generate() }, [])
 
-  const generateDigest = async () => {
+  const generate = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/digest', {
+      const r = await fetch('/api/digest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ingestion_id: ingestionId,
-          days_back: daysBack,
-        }),
+        body: JSON.stringify({ ingestion_id: ingestionId, days_back: 7 }),
       })
-
-      if (!response.ok) {
-        throw new Error('Failed to generate digest')
-      }
-
-      const data = await response.json()
-      setDigest(data)
-    } catch (error) {
-      console.error('Failed to generate digest:', error)
+      if (!r.ok) throw new Error('Failed')
+      setDigest(await r.json())
+    } catch {
       alert('Failed to generate digest')
     } finally {
       setLoading(false)
     }
   }
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(JSON.stringify(digest, null, 2))
-    alert('Digest copied to clipboard!')
-  }
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-claude-surface border border-claude-border rounded-claude max-w-3xl w-full max-h-[80vh] overflow-y-auto custom-scrollbar shadow-claude-lg">
-        <div className="sticky top-0 bg-claude-surface border-b border-claude-border px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-claude-text">Digest</h2>
-          <button
-            onClick={onClose}
-            className="text-claude-text-secondary hover:text-claude-text transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-claude-surface border border-claude-border rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto custom-scrollbar shadow-claude-xl">
+        {/* Header */}
+        <div className="sticky top-0 bg-claude-surface border-b border-claude-border px-6 py-4 flex items-center justify-between rounded-t-2xl">
+          <h2 className="font-display text-xl font-bold text-claude-text">Digest</h2>
+          <button onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-claude-text-tertiary hover:text-claude-text hover:bg-claude-code-bg transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -57,66 +39,53 @@ function DigestModal({ ingestionId, onClose }) {
 
         <div className="p-6">
           {loading ? (
-            <div className="text-center py-12">
-              <div className="inline-block w-8 h-8 border-2 border-claude-border border-t-claude-accent rounded-full animate-spin mb-4"></div>
-              <p className="text-claude-text-secondary">Generating digest...</p>
+            <div className="text-center py-14">
+              <div className="w-10 h-10 border-2 border-claude-border rounded-full mx-auto mb-4"
+                style={{ borderTopColor: '#D97757', animation: 'spin 0.8s linear infinite' }} />
+              <p className="text-claude-text-secondary text-sm">Generating digest…</p>
             </div>
           ) : digest ? (
             <div>
-              <div className="mb-6 pb-6 border-b border-claude-border">
-                <h3 className="text-lg font-semibold text-claude-text mb-1">
-                  {digest.source_name}
-                </h3>
-                <p className="text-sm text-claude-text-secondary">{digest.period}</p>
+              <div className="mb-6 pb-5 border-b border-claude-border">
+                <h3 className="font-display text-lg font-bold text-claude-text mb-1">{digest.source_name}</h3>
+                <p className="text-xs font-mono text-claude-text-tertiary">{digest.period}</p>
               </div>
 
-              {digest.sections && digest.sections.length > 0 && (
-                <div className="space-y-4 mb-6">
-                  <h4 className="font-semibold text-claude-text">Summary</h4>
-                  {digest.sections.map((section, idx) => (
-                    <div key={idx} className="bg-claude-code-bg rounded-lg p-4">
+              {digest.sections?.length > 0 && (
+                <div className="space-y-3 mb-6">
+                  {digest.sections.map((s, i) => (
+                    <div key={i} className="bg-claude-code-bg rounded-xl p-4">
                       <div className="flex items-center justify-between mb-2">
-                        <h5 className="font-medium text-claude-text">{section.type}</h5>
-                        <span className="text-sm text-claude-text-secondary">
-                          {section.count} items
-                        </span>
+                        <h4 className="font-semibold text-claude-text text-sm">{s.type}</h4>
+                        <span className="text-xs font-mono text-claude-text-tertiary">{s.count} items</span>
                       </div>
-                      <p className="text-sm text-claude-text-secondary leading-relaxed">
-                        {section.summary}
-                      </p>
+                      <p className="text-sm text-claude-text-secondary leading-relaxed">{s.summary}</p>
                     </div>
                   ))}
                 </div>
               )}
 
               {digest.stats && (
-                <div className="bg-claude-code-bg rounded-lg p-4 mb-6">
-                  <h4 className="font-semibold text-claude-text mb-3">Statistics</h4>
-                  <div className="space-y-2 text-sm text-claude-text-secondary">
+                <div className="bg-claude-code-bg rounded-xl p-4 mb-6">
+                  <h4 className="font-semibold text-claude-text text-sm mb-3">Statistics</h4>
+                  <div className="space-y-1.5 text-sm text-claude-text-secondary font-mono">
                     <div className="flex justify-between">
-                      <span>Total documents:</span>
-                      <span className="font-medium text-claude-text">
-                        {digest.stats.total_docs}
-                      </span>
+                      <span>Total documents</span>
+                      <span className="text-claude-text font-medium">{digest.stats.total_docs}</span>
                     </div>
                     {digest.stats.date_range && (
                       <div className="flex justify-between">
-                        <span>Date range:</span>
-                        <span className="font-medium text-claude-text">
-                          {digest.stats.date_range}
-                        </span>
+                        <span>Date range</span>
+                        <span className="text-claude-text">{digest.stats.date_range}</span>
                       </div>
                     )}
-                    {digest.stats.top_authors && digest.stats.top_authors.length > 0 && (
-                      <div>
-                        <div className="mb-1">Top contributors:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {digest.stats.top_authors.slice(0, 5).map((author, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-1 bg-claude-surface border border-claude-border rounded text-xs"
-                            >
-                              {author.name} ({author.count})
+                    {digest.stats.top_authors?.length > 0 && (
+                      <div className="pt-2">
+                        <p className="text-claude-text-tertiary mb-1.5">Top contributors</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {digest.stats.top_authors.slice(0, 5).map((a, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-white border border-claude-border rounded text-xs">
+                              {a.name} ({a.count})
                             </span>
                           ))}
                         </div>
@@ -128,28 +97,25 @@ function DigestModal({ ingestionId, onClose }) {
 
               <div className="flex gap-3">
                 <button
-                  onClick={copyToClipboard}
-                  className="flex-1 px-4 py-2 bg-claude-code-bg hover:bg-claude-border text-claude-text rounded-lg font-medium transition-colors"
-                >
-                  Copy to Clipboard
+                  onClick={() => { navigator.clipboard.writeText(JSON.stringify(digest, null, 2)); alert('Copied!') }}
+                  className="flex-1 px-4 py-2.5 bg-claude-code-bg hover:bg-claude-border text-claude-text rounded-xl text-sm font-semibold transition-colors">
+                  Copy JSON
                 </button>
                 <button
                   onClick={onClose}
-                  className="px-6 py-2 bg-claude-accent hover:bg-claude-accent-hover text-white rounded-lg font-medium transition-colors"
-                >
+                  className="px-6 py-2.5 text-white rounded-xl text-sm font-semibold transition-all hover:-translate-y-0.5"
+                  style={{ background: 'linear-gradient(135deg, #D97757, #C4673F)' }}>
                   Close
                 </button>
               </div>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <p className="text-claude-text-secondary">Failed to generate digest</p>
-            </div>
+            <div className="text-center py-12 text-claude-text-secondary text-sm">Failed to generate digest</div>
           )}
         </div>
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
-
-export default DigestModal
